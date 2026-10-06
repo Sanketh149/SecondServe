@@ -1,0 +1,207 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - navigation [ref=e5]:
+      - generic [ref=e7]:
+        - link "Hack2skill" [ref=e8] [cursor=pointer]:
+          - /url: https://hack2skill.com/
+          - img "Hack2skill" [ref=e9]
+          - img "Google Cloud" [ref=e10]
+        - list [ref=e12]:
+          - listitem [ref=e13] [cursor=pointer]:
+            - link "Overview" [ref=e14]:
+              - /url: index.html
+          - listitem [ref=e15] [cursor=pointer]:
+            - link "Challenges & Requirements" [ref=e16]:
+              - /url: themes.html
+          - listitem [ref=e17] [cursor=pointer]:
+            - link "Rewards & Prizes" [ref=e18]:
+              - /url: rewards.html
+          - listitem [ref=e19] [cursor=pointer]:
+            - link "FAQs" [ref=e20]:
+              - /url: Faqs.html
+        - generic [ref=e21]:
+          - button "Select language" [ref=e23] [cursor=pointer]:
+            - img "Language" [ref=e24]
+          - link "Register now" [ref=e26] [cursor=pointer]:
+            - /url: https://hack2skill.com/event/aibuildercup2026/registration?isExternalLinkRedirection=true
+    - navigation "On this page" [ref=e27]:
+      - generic [ref=e28]:
+        - link "Who can participate" [ref=e29] [cursor=pointer]:
+          - /url: "#ai-builder-cup-participants"
+        - link "Timeline" [ref=e31] [cursor=pointer]:
+          - /url: "#abc-next-steps"
+        - link "Journey" [ref=e33] [cursor=pointer]:
+          - /url: "#abc-roadmap"
+  - generic [ref=e35]:
+    - generic [ref=e37]:
+      - generic [ref=e39]:
+        - generic [ref=e40]:
+          - heading "AI Builder Cup" [level=1]:
+            - generic [ref=e41]:
+              - generic [ref=e42]: AI
+              - generic [ref=e43]: Builder
+              - generic [aria-hidden]: B
+            - generic [ref=e44]: Cup
+          - paragraph [ref=e45]: Build in JAPAC.Build for the world.
+        - link "Register now" [ref=e48] [cursor=pointer]:
+          - /url: https://hack2skill.com/event/aibuildercup2026/registration?isExternalLinkRedirection=true
+      - generic [ref=e50]:
+        - generic [ref=e51]:
+          - paragraph [ref=e53]: Buildersassemble.
+          - paragraph [ref=e54]: Where builders become champions
+        - generic [ref=e55]:
+          - generic [ref=e56]:
+            - generic [ref=e57]: 2-4
+            - generic [ref=e58]: Team Member
+          - generic [ref=e59]:
+            - generic [ref=e60]: 21+
+            - generic [ref=e61]: Age only
+          - generic [ref=e62]:
+            - generic [ref=e63]: JAPAC
+            - generic [ref=e64]: Region
+          - generic [ref=e65]:
+            - generic [ref=e66]: In-person
+            - generic [ref=e67]: Grand Finale (Demo Day)
+    - generic [ref=e69]:
+      - generic [ref=e70]:
+        - generic [ref=e72]:
+          - generic "AI Builder Cup" [ref=e73]
+          - button "Unmute" [ref=e74] [cursor=pointer]
+        - generic [ref=e79]:
+          - heading "Overview" [level=2] [ref=e80]
+          - generic [ref=e81]:
+            - paragraph [ref=e82]: Asia-Pacific is home to more than 15 million developers and has one of the fastest-growing developer populations in the world.
+            - paragraph [ref=e83]: "The Google Cloud AI Builder Cup, powered by Hack2skill is an open invitation to all of them: start with a problem you understand, build a solution on Google Cloud, and show that something built for a local need can scale to a global one."
+            - paragraph [ref=e84]: The premise is simple. You get a real-world problem, you get to form your team and a few weeks to build something that solves it and finally submit it for evaluation.
+            - paragraph [ref=e85]: The most potential solutions move on to an in-person finale, where teams from across the JAPAC region come together to demo what they made, in front of a live panel of Google Cloud & industry experts. The Demo Day will be happening in Singapore, with sponsored to & fro travel.
+      - generic [ref=e86]:
+        - link "Register now" [ref=e87] [cursor=pointer]:
+          - /url: https://hack2skill.com/event/aibuildercup2026/registration?isExternalLinkRedirection=true
+        - generic [ref=e88]:
+          - text: Total cash prize pool
+          - generic [ref=e89]: USD 30,000
+    - generic [ref=e91]:
+      - generic [ref=e92]:
+        - heading "This hackathon is for" [level=2] [ref=e93]
+        - paragraph [ref=e94]
+      - generic [ref=e97]:
+        - article [ref=e98]:
+          - heading "Working professionals" [level=3] [ref=e99]
+          - paragraph [ref=e100]: Leverage your industry expertise and fresh perspectives to tackle real-world business problems with AI.
+        - article [ref=e101]:
+          - heading "Entrepreneurs" [level=3] [ref=e102]
+          - paragraph [ref=e103]: Address exciting business problems, benefit from mentorship and access Google’s cutting-edge AI resources.
+        - article [ref=e104]:
+          - heading "Startups" [level=3] [ref=e105]
+          - paragraph [ref=e106]: Put your potential to the test on real-world problems, sharpen your product with Google's AI stack, and gain visibility with industry leaders and experts.
+      - paragraph [ref=e107]: "*This edition is open to working professionals only. Students are not eligible to participate. Eligibility may be verified at any point, and any team or participant found to include a student will be disqualified, including after shortlisting or selection for the finale."
+    - generic [ref=e109]:
+      - heading "Timeline" [level=2] [ref=e110]
+      - list [ref=e113]:
+        - listitem [ref=e114]:
+          - generic [ref=e116]:
+            - paragraph [ref=e117]: Registration & Team Formation
+            - paragraph [ref=e118]: 1 Sept - 11 Oct, 2026
+        - listitem [ref=e119]:
+          - generic [ref=e121]:
+            - paragraph [ref=e122]: Prototype Building & Submission
+            - paragraph [ref=e123]: 7 Sept - 18 Oct, 2026
+        - listitem [ref=e124]:
+          - generic [ref=e126]:
+            - paragraph [ref=e127]: Prototype submission deadline
+            - paragraph [ref=e128]: Oct 18, 2026
+        - listitem [ref=e129]:
+          - generic [ref=e131]:
+            - paragraph [ref=e132]: Evaluation Phase
+            - paragraph [ref=e133]: Oct 19 - Nov 6, 2026
+        - listitem [ref=e134]:
+          - generic [ref=e136]:
+            - paragraph [ref=e137]: Finalists Announcement
+            - paragraph [ref=e138]: Nov 7, 2026
+        - listitem [ref=e139]:
+          - generic [ref=e141]:
+            - paragraph [ref=e142]: Grand Finale — Demo Day, Singapore
+            - paragraph [ref=e143]: Dec 4, 2026
+      - generic [ref=e144]:
+        - button "Show registration and team formation" [ref=e145] [cursor=pointer]
+        - button "Show prototype building and submission" [ref=e146] [cursor=pointer]
+        - button "Show registration deadline" [ref=e147] [cursor=pointer]
+        - button "Show evaluation phase" [ref=e148] [cursor=pointer]
+        - button "Show shortlisting and results" [ref=e149] [cursor=pointer]
+        - button "Show grand finale" [ref=e150] [cursor=pointer]
+    - article [ref=e154]:
+      - paragraph [ref=e155]:
+        - text: The hackathon culminates in a live in-person
+        - strong [ref=e156]: Grand Finale in Singapore
+        - text: "on"
+        - strong [ref=e157]: December 4, 2026.
+    - generic [ref=e159]:
+      - generic [ref=e160]:
+        - heading "Your roadmap to Singapore" [level=2] [ref=e162]:
+          - generic [ref=e163]: Your roadmap
+          - generic [ref=e164]: to Singapore
+        - list [ref=e167]:
+          - listitem [ref=e168]:
+            - generic [ref=e170]:
+              - paragraph [ref=e171]: Registration
+              - paragraph [ref=e172]: You can register solo and form or join a team later.
+          - listitem [ref=e173]:
+            - generic [ref=e175]:
+              - paragraph [ref=e176]: Team formation
+              - paragraph [ref=e177]: Form a team of 2 to 4 members by October 11. If your team is shortlisted for the finale, only 2 members will travel to Singapore.
+          - listitem [ref=e178]:
+            - generic [ref=e180]:
+              - paragraph [ref=e181]: Build & submit
+              - paragraph [ref=e182]: Build a working prototype on Google Cloud that addresses your chosen problem statement, and submit it before October 18.
+          - listitem [ref=e183]:
+            - generic [ref=e185]:
+              - paragraph [ref=e186]: Evaluation
+              - paragraph [ref=e187]: Every submission is reviewed and scored against the judging criteria below.
+          - listitem [ref=e188]:
+            - generic [ref=e190]:
+              - paragraph [ref=e191]: Grand Finale
+              - paragraph [ref=e192]: Shortlisted teams are announced on November 7 and invited to demo live in Singapore on December 4, in front of Google Cloud and industry experts.
+      - generic [ref=e193]:
+        - paragraph [ref=e194]: Disclaimer
+        - paragraph [ref=e195]:
+          - text: AI Builder Cup is a hackathon for developers & builders of JAPAC region, organized by Hack2skill and sponsored by Google Cloud. This program is independently operated by Hack2skill and is not directly administered by Google Cloud. Google Cloud provides technical expertise access, and educational resources for this initiative. I hearby agree to these -
+          - link "*Initiative Terms & Conditions" [ref=e196] [cursor=pointer]:
+            - /url: https://docs.google.com/document/d/e/2PACX-1vRm7ChZ6Ij9fG7uFDkxzUMpwgVeBmnQ6cMDnAIEEX84AiLBOOQ9cYbl3S5OzFBbcVb8TF55s-eVpiXb/pub
+    - contentinfo [ref=e197]:
+      - generic [ref=e198]:
+        - generic [ref=e199]:
+          - generic [ref=e200]:
+            - heading "CONTACT US" [level=4] [ref=e201]
+            - generic [ref=e202]:
+              - generic [ref=e203]: +91 98703 30830
+              - link "Click here to join" [ref=e207] [cursor=pointer]:
+                - /url: https://discord.gg/x5GRzJbKpa
+            - paragraph [ref=e211]: OR EMAIL US AT
+            - generic [ref=e212]:
+              - generic: Email copied
+              - button "support+aibuildercup@hack2skill.com" [ref=e213] [cursor=pointer]
+          - generic [ref=e218]:
+            - img "Google Cloud" [ref=e219]
+            - img "Hack2skill" [ref=e221]
+          - generic [ref=e223]:
+            - heading "QUICK LINKS" [level=4] [ref=e224]
+            - list [ref=e225]:
+              - listitem [ref=e226]:
+                - link "Overview" [ref=e227] [cursor=pointer]:
+                  - /url: "#ai-builder-cup-overview"
+              - listitem [ref=e228]:
+                - link "Who can apply" [ref=e229] [cursor=pointer]:
+                  - /url: "#ai-builder-cup-participants"
+              - listitem [ref=e230]:
+                - link "Timeline" [ref=e231] [cursor=pointer]:
+                  - /url: "#abc-next-steps"
+              - listitem [ref=e232]:
+                - link "Rewards & Prizes" [ref=e233] [cursor=pointer]:
+                  - /url: rewards.html
+              - listitem [ref=e234]:
+                - link "FAQs" [ref=e235] [cursor=pointer]:
+                  - /url: Faqs.html
+              - listitem [ref=e236]:
+                - link "Challenges & Requirements" [ref=e237] [cursor=pointer]:
+                  - /url: themes.html
+        - paragraph [ref=e239]: © Gen AI Academy APAC Edition. ALL RIGHTS RESERVED
