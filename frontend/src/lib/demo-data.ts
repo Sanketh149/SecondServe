@@ -51,14 +51,28 @@ export interface DemoDonation {
   usableUntil: string
   status: DonationStatus
   handoffCode: string
+  responseWindowEndsAt?: string
+  events?: Array<{
+    type: string
+    occurredAt: string
+    detail: string
+  }>
   allocations: RescueAllocation[]
 }
 
 export interface NewDonationInput {
+  analysisId?: string
   itemName: string
   category: string
   quantity: number
+  dietaryTags: string[]
+  declaredAllergens: string[]
+  allergenStatus: "DONOR_CONFIRMED" | "UNKNOWN" | "NOT_APPLICABLE"
+  preparedAt: string
+  storageCondition: string
+  pickupAvailableAt: string
   usableUntil: string
+  donorConfirmed: boolean
   allocations: Array<{
     recipientId: string
     quantity: number

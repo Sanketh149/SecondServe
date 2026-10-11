@@ -9,6 +9,10 @@ npm install
 npm run dev
 ```
 
+To use the FastAPI backend, copy `.env.example` to `.env.local` and run the
+backend at `http://127.0.0.1:8000`. The frontend then uses the seeded demo
+identities and backend API data instead of the browser-only reducer.
+
 Useful checks:
 
 ```bash
@@ -25,4 +29,13 @@ npm run lint
 - `/recipient/:recipientId/offers` — accept or decline offers and submit recipient-confirmed receipts.
 - `/recipient/:recipientId/capacity`, `/received`, and `/impact` — recipient profile and outcomes.
 
-The current UI uses synthetic sample data and in-memory browser state. It does not call Firebase, Gemini, Google Routes, or a live backend; image analysis is represented only by an explicitly labelled sample suggestion. Refreshing the page resets the demo state. Do not use the demo as a food-safety certification or a report of real impact.
+Without `VITE_API_BASE_URL`, the UI uses synthetic sample data and in-memory
+browser state; refreshing resets demo changes. With the backend URL configured,
+donation, offer, receipt, impact, image analysis, and readiness flows use the
+FastAPI endpoints. Gemini and Google Routes require backend configuration and
+Google Cloud credentials; their failures are surfaced rather than replaced
+with success-shaped sample results. Do not use the demo as food-safety
+certification or a report of real impact.
+
+For backend setup and its current persistence/infrastructure limits, see the
+root [README](../README.md).

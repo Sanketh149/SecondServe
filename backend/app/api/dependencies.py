@@ -1,14 +1,13 @@
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Header, Request
+import firebase_admin
 from firebase_admin import auth
 
 from app.api import errors
 from app.config import get_settings
 from app.models.user import CurrentUser
 from app.repositories.memory import get_repository
-from app.services.auth_service import FirebaseAuthService
-
 settings = get_settings()
 
 
@@ -25,7 +24,17 @@ def get_current_user(
     if not authorization or not authorization.startswith("Bearer "):
         raise errors.SecondServeError(401, "UNAUTHORIZED", "A Firebase ID token is required.")
     try:
-        token = auth.verify_id_token(authorization.removeprefix("Bearer "), settings.firebase_project_id or "")
+        if not firebase_admin._apps:
+            options = (
+                {"projectId": settings.firebase_project_id}
+                if settings.firebase_project_id
+                else None
+            )
+            firebase_admin.initialize_app(options=options)
+        token = auth.verify_id_token(
+            authorization.removeprefix("Bearer "),
+            app=firebase_admin.get_app(),
+        )
     except Exception as exc:
         raise errors.SecondServeError(401, "INVALID_AUTH_TOKEN", "The Firebase ID token is invalid.") from exc
     user = get_repository().get_user(token["uid"])

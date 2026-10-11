@@ -14,7 +14,7 @@ class Receipt(TimestampModel):
     recipient_organization_id: str
     quantity_received: int = Field(gt=0)
     confirmed_at: datetime
-    handoff_code_hash: str
+    handoff_code_hash: str = Field(exclude=True)
     exception_reason: str | None
 
 

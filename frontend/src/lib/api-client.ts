@@ -1,0 +1,500 @@
+import {
+  recipientCandidates,
+  type DemoDonation,
+  type NewDonationInput,
+} from "@/lib/demo-data"
+
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? ""
+
+export const isApiMode = apiBaseUrl.length > 0
+
+export class ApiError extends Error {
+  readonly status: number
+  readonly code?: string
+
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+  ) {
+    super(message)
+    this.status = status
+    this.code = code
+    this.name = "ApiError"
+  }
+}
+
+export interface ApiFieldValue<T = unknown> {
+  value: T
+  source: "AI_SUGGESTED" | "DONOR_CONFIRMED" | "UNKNOWN"
+  confidence: number
+}
+
+export interface ApiFoodAnalysis {
+  analysisId: string
+  expiresAt: string
+  candidate: Record<string, ApiFieldValue>
+  requiredConfirmations: string[]
+  safetyNotice: string
+}
+
+export interface ApiPlanAllocation {
+  allocationId: string
+  recipientId: string
+  recipientName: string
+  quantity: number
+  readiness: "READY" | "BLOCKED" | "UNKNOWN"
+  estimatedArrivalAt: string | null
+  needFit: number
+  reasonCodes: string[]
+  fallbackCandidates: Array<{
+    recipientId: string
+    recipientName: string
+    readiness: string
+  }>
+}
+
+export interface ApiRescuePlan {
+  planId: string
+  donationId: string
+  status: "FULL" | "PARTIAL" | "NONE" | "UNKNOWN"
+  donationQuantity: number
+  allocatedQuantity: number
+  unallocatedQuantity: number
+  allocations: ApiPlanAllocation[]
+  route: {
+    orderedRecipientIds: string[]
+    distanceMeters: number | null
+    durationSeconds: number | null
+    provider: string
+  } | null
+  notReadyCandidates: Array<{
+    recipientId: string
+    recipientName: string
+    readiness: string
+    reasonCodes: string[]
+  }>
+  createdAt: string
+  updatedAt: string
+}
+
+interface ApiAllocation {
+  allocationId: string
+  planId: string
+  donationId: string
+  recipientId: string
+  recipientName: string
+  quantity: number
+  status: string
+  confirmedQuantity: number
+  receivedQuantity: number
+  activeCandidateIndex: number
+  assignedCandidateIds: string[]
+  distance: string
+  eta: string
+}
+
+interface ApiDonation {
+  donationId: string
+  donorOrganizationId: string
+  itemName: string
+  category: string
+  quantity: number
+  unit: string
+  dietaryTags: string[]
+  declaredAllergens: string[]
+  allergenStatus: string
+  preparedAt: string
+  storageCondition: string
+  pickupAvailableAt: string
+  usableUntil: string
+  analysisId: string | null
+  status: string
+  planId: string | null
+  confirmedQuantity: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ApiDonationDetail extends ApiDonation {
+  plan: ApiRescuePlan | null
+  allocations: ApiAllocation[]
+  events: Array<{
+    eventId: string
+    actorId: string
+    eventType: string
+    occurredAt: string
+    payload: Record<string, unknown>
+  }>
+  currentOffer: ApiOffer | null
+  handoffCode: string | null
+}
+
+export interface ApiOffer {
+  offerId: string
+  allocationId: string
+  donationId: string
+  recipientId: string
+  status: string
+  expiresAt: string
+  decisionReason: string | null
+  transitionCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ApiImpactSummary {
+  confirmedQuantity: number
+  rescuedMeals: number
+  receiptsCount: number
+  period: string
+}
+
+export interface DonationFormPayload {
+  analysisId?: string
+  itemName: string
+  category: string
+  quantity: number
+  unit: string
+  dietaryTags: string[]
+  declaredAllergens: string[]
+  allergenStatus: string
+  preparedAt: string
+  storageCondition: string
+  pickupAvailableAt: string
+  usableUntil: string
+}
+
+const recipientIds: Record<string, string> = {
+  "rcp-hope": "hope-shelter",
+  "rcp-community": "community-kitchen",
+  "rcp-pantry": "neighborhood-kitchen",
+}
+
+const recipientApiIds: Record<string, string> = {
+  "hope-shelter": "rcp-hope",
+  "community-kitchen": "rcp-community",
+  "neighborhood-kitchen": "rcp-pantry",
+}
+
+const categoryLabels: Record<string, string> = {
+  prepared_meal: "Prepared meals",
+  bakery: "Bakery",
+  produce: "Produce",
+  packaged_food: "Packaged food",
+  other: "Other",
+}
+
+const donorStatuses: Record<string, DemoDonation["status"]> = {
+  OPEN: "UNCLAIMED",
+  PLANNED: "OFFERING",
+  OFFERING: "OFFERING",
+  PARTIALLY_ACCEPTED: "ACCEPTED",
+  ACCEPTED: "ACCEPTED",
+  IN_PROGRESS: "ACCEPTED",
+  RESCUED: "RECEIVED",
+  PARTIALLY_RESCUED: "PARTIALLY_RECEIVED",
+  EXPIRED: "UNCLAIMED",
+  CANCELLED: "UNCLAIMED",
+}
+
+const allocationStatuses: Record<string, DemoDonation["allocations"][number]["status"]> = {
+  PLANNED: "QUEUED",
+  OFFERING: "OFFERING",
+  ACCEPTED: "ACCEPTED",
+  DELIVERED: "RECEIVED",
+  UNASSIGNED: "DECLINED",
+  EXPIRED: "DECLINED",
+  CANCELLED: "DECLINED",
+}
+
+function currentDemoUser(): string {
+  const recipientSlug = window.location.pathname.match(/^\/recipient\/([^/]+)/)?.[1]
+  if (!recipientSlug) return "demo-donor"
+  const recipientUsers: Record<string, string> = {
+    "hope-shelter": "demo-hope",
+    "community-kitchen": "demo-community",
+    "neighborhood-kitchen": "demo-pantry",
+  }
+  return recipientUsers[recipientSlug] ?? "demo-hope"
+}
+
+async function request<T>(
+  path: string,
+  options: RequestInit = {},
+): Promise<T> {
+  if (!apiBaseUrl) {
+    throw new ApiError("The backend API URL is not configured.", 0)
+  }
+  const headers = new Headers(options.headers)
+  headers.set("X-Demo-User", currentDemoUser())
+  if (options.body && !(options.body instanceof FormData)) {
+    headers.set("Content-Type", "application/json")
+  }
+  let response: Response
+  try {
+    response = await fetch(`${apiBaseUrl}/api/v1${path}`, {
+      ...options,
+      headers,
+    })
+  } catch (error) {
+    throw new ApiError(
+      error instanceof Error
+        ? `Could not reach the SecondServe API: ${error.message}`
+        : "Could not reach the SecondServe API.",
+      0,
+    )
+  }
+  if (!response.ok) {
+    const body: unknown = await response.json().catch(() => null)
+    const error =
+      typeof body === "object" && body !== null && "error" in body
+        ? (body as { error?: { message?: string; code?: string } }).error
+        : undefined
+    const detail =
+      typeof body === "object" && body !== null && "detail" in body
+        ? (body as { detail?: unknown }).detail
+        : undefined
+    throw new ApiError(
+      error?.message ??
+        (typeof detail === "string" ? detail : `API request failed (${response.status}).`),
+      response.status,
+      error?.code,
+    )
+  }
+  if (response.status === 204) return undefined as T
+  return (await response.json()) as T
+}
+
+function toIso(value: string): string {
+  const timestamp = new Date(value)
+  if (!Number.isFinite(timestamp.getTime())) {
+    throw new ApiError("Enter a valid date and time before continuing.", 422)
+  }
+  return timestamp.toISOString()
+}
+
+export function toDonationPayload(
+  input: NewDonationInput,
+): DonationFormPayload {
+  const categoryMap: Record<string, string> = {
+    "Prepared meals": "prepared_meal",
+    Bakery: "bakery",
+    Produce: "produce",
+    "Packaged food": "packaged_food",
+  }
+  return {
+    ...(input.analysisId ? { analysisId: input.analysisId } : {}),
+    itemName: input.itemName.trim(),
+    category: categoryMap[input.category] ?? input.category.toLowerCase(),
+    quantity: input.quantity,
+    unit: "meals",
+    dietaryTags: input.dietaryTags,
+    declaredAllergens: input.declaredAllergens,
+    allergenStatus: input.allergenStatus,
+    preparedAt: toIso(input.preparedAt),
+    storageCondition: input.storageCondition.toLowerCase(),
+    pickupAvailableAt: toIso(input.pickupAvailableAt),
+    usableUntil: toIso(input.usableUntil),
+  }
+}
+
+export async function analyzeFoodImage(file: File): Promise<ApiFoodAnalysis> {
+  const body = new FormData()
+  body.append("file", file)
+  return request<ApiFoodAnalysis>("/donations/analyze", {
+    method: "POST",
+    body,
+  })
+}
+
+export async function previewRescuePlan(
+  input: NewDonationInput,
+): Promise<ApiRescuePlan> {
+  return request<ApiRescuePlan>("/donations/rescue-plan-preview", {
+    method: "POST",
+    body: JSON.stringify(toDonationPayload(input)),
+  })
+}
+
+export async function loadDonorDonations(): Promise<DemoDonation[]> {
+  const result = await request<{ donations: ApiDonation[] }>("/donations")
+  return Promise.all(result.donations.map((donation) => loadDonation(donation.donationId)))
+}
+
+export async function loadRecipientDonations(): Promise<DemoDonation[]> {
+  const result = await request<{ offers: ApiOffer[] }>("/recipients/me/offers")
+  const ids = [...new Set(result.offers.map((offer) => offer.donationId))]
+  const donations = await Promise.all(
+    ids.map(async (id) => {
+      try {
+        return await loadDonation(id)
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 403) return null
+        throw error
+      }
+    }),
+  )
+  return donations.filter((donation): donation is DemoDonation => donation !== null)
+}
+
+export async function loadDonation(donationId: string): Promise<DemoDonation> {
+  const donation = await request<ApiDonationDetail>(
+    `/donations/${encodeURIComponent(donationId)}`,
+  )
+  return mapDonation(donation)
+}
+
+export async function loadImpactSummary(): Promise<ApiImpactSummary> {
+  return request<ApiImpactSummary>("/impact/summary")
+}
+
+export async function createDonationAndStart(
+  input: NewDonationInput,
+): Promise<string> {
+  const created = await request<ApiDonation>("/donations", {
+    method: "POST",
+    body: JSON.stringify(toDonationPayload(input)),
+  })
+  const plan = await request<ApiRescuePlan>(
+    `/donations/${encodeURIComponent(created.donationId)}/rescue-plan`,
+    { method: "POST" },
+  )
+  if (!["FULL", "PARTIAL"].includes(plan.status)) {
+    throw new ApiError(
+      plan.status === "UNKNOWN"
+        ? "The rescue route could not be verified. No offer was started."
+        : "No eligible rescue plan was found. No offer was started.",
+      409,
+      `PLAN_${plan.status}`,
+    )
+  }
+  await request("/rescue-plans/" + encodeURIComponent(plan.planId) + "/start", {
+    method: "POST",
+  })
+  return created.donationId
+}
+
+export async function respondToBackendOffer(
+  donationId: string,
+  allocationId: string,
+  decision: "ACCEPT" | "DECLINE",
+): Promise<void> {
+  const donation = await request<ApiDonationDetail>(
+    `/donations/${encodeURIComponent(donationId)}`,
+  )
+  const offer = donation.currentOffer
+  if (!offer || offer.allocationId !== allocationId) {
+    throw new ApiError("This offer is no longer active. Refresh and review the latest status.", 409)
+  }
+  await request(`/recipients/me/offers/${encodeURIComponent(offer.offerId)}/response`, {
+    method: "POST",
+    body: JSON.stringify({ decision }),
+  })
+}
+
+export async function submitBackendReceipt(
+  allocationId: string,
+  handoffCode: string,
+  quantityReceived: number,
+): Promise<void> {
+  await request(`/allocations/${encodeURIComponent(allocationId)}/receipt`, {
+    method: "POST",
+    body: JSON.stringify({ handoffCode, quantityReceived, exceptionReason: null }),
+  })
+}
+
+function mapDonation(donation: ApiDonationDetail): DemoDonation {
+  const allocations = donation.allocations.map((allocation) => {
+    const mappedRecipientId =
+      recipientIds[allocation.recipientId] ?? allocation.recipientId
+    const candidate = recipientCandidates.find((item) => item.id === mappedRecipientId)
+    const fallbackId =
+      allocation.assignedCandidateIds[allocation.activeCandidateIndex + 1]
+    const fallbackCandidate = recipientCandidates.find(
+      (item) => item.id === (recipientIds[fallbackId] ?? fallbackId),
+    )
+    return {
+      id: allocation.allocationId,
+      recipientId: mappedRecipientId,
+      recipientName: allocation.recipientName,
+      initials: candidate?.initials ?? allocation.recipientName.slice(0, 2).toUpperCase(),
+      quantity: allocation.quantity,
+      status: allocationStatuses[allocation.status] ?? "QUEUED",
+      distance: allocation.distance,
+      eta: allocation.eta,
+      receivedQuantity: allocation.receivedQuantity,
+      ...(fallbackCandidate
+        ? {
+            fallbackRecipientId: fallbackCandidate.id,
+            fallbackRecipientName: fallbackCandidate.name,
+            fallbackInitials: fallbackCandidate.initials,
+          }
+        : {}),
+    }
+  })
+  const status = donorStatuses[donation.status] ?? "UNCLAIMED"
+  const isRelayed = donation.events.some((event) => event.eventType === "OFFER_RELAYED")
+  const createdAt = new Date(donation.createdAt)
+  return {
+    id: donation.donationId,
+    itemName: donation.itemName,
+    category: categoryLabels[donation.category] ?? donation.category,
+    quantity: donation.quantity,
+    unit: "meals",
+    createdAt: Number.isFinite(createdAt.getTime())
+      ? createdAt.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+      : "Recently",
+    usableUntil: new Date(donation.usableUntil).toLocaleString([], {
+      weekday: "short",
+      hour: "numeric",
+      minute: "2-digit",
+    }),
+    status:
+      status === "OFFERING" && isRelayed
+        ? "RELAYED"
+        : status,
+    handoffCode: donation.handoffCode ?? "",
+    responseWindowEndsAt: donation.currentOffer?.expiresAt,
+    events: donation.events.map((event) => ({
+      type: event.eventType,
+      occurredAt: event.occurredAt,
+      detail: eventDetail(event.eventType, event.payload, allocations),
+    })),
+    allocations,
+  }
+}
+
+function eventDetail(
+  eventType: string,
+  payload: Record<string, unknown>,
+  allocations: DemoDonation["allocations"],
+): string {
+  const allocationId =
+    typeof payload.allocationId === "string" ? payload.allocationId : undefined
+  const recipientName = allocations.find((item) => item.id === allocationId)?.recipientName
+  switch (eventType) {
+    case "DONATION_CREATED":
+      return "Donor-entered food and cutoff details saved."
+    case "RESCUE_PLAN_CREATED":
+      return "Backend readiness and route checks completed."
+    case "OFFER_STARTED":
+      return `First rescue offer sent${recipientName ? ` to ${recipientName}` : ""}.`
+    case "OFFER_RELAYED":
+      return `Offer relayed${recipientName ? ` to ${recipientName}` : " to the next recipient"}.`
+    case "OFFER_ACCEPTED":
+      return `${recipientName ?? "Recipient"} accepted the offer.`
+    case "OFFER_DECLINED":
+      return `${recipientName ?? "Recipient"} declined the offer.`
+    case "OFFER_EXPIRED":
+      return "The response window expired and the offer was relayed."
+    case "RECEIPT_CONFIRMED":
+      return `${String(payload.quantityReceived ?? 0)} meals were recipient-confirmed.`
+    default:
+      return eventType.toLowerCase().replaceAll("_", " ")
+  }
+}
+
+export function backendRecipientId(slug: string): string {
+  return recipientApiIds[slug] ?? slug
+}

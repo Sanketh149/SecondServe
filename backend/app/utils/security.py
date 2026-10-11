@@ -7,4 +7,4 @@ def hash_handoff_code(code: str) -> str:
 
 
 def generate_handoff_code() -> str:
-    return secrets.randbelow(900_000) + 100_000
+    return str(secrets.randbelow(900_000) + 100_000)

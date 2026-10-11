@@ -1,7 +1,5 @@
-from datetime import datetime, timedelta, timezone
-
 from fastapi.testclient import TestClient
-from tests.conftest import demo_headers
+from tests.conftest import demo_headers, demo_rescue_window
 
 
 def test_readiness_blocks_allergen_restriction(client: TestClient) -> None:
@@ -13,7 +11,7 @@ def test_readiness_blocks_allergen_restriction(client: TestClient) -> None:
 
 
 def test_donation_creation_and_plan_are_owned_by_donor(client: TestClient) -> None:
-    cutoff = (datetime.now(timezone.utc) + timedelta(hours=4)).isoformat().replace("+00:00", "Z")
+    now, pickup, cutoff = demo_rescue_window()
     payload = {
         "itemName": "Vegetarian pasta meal",
         "category": "prepared_meal",
@@ -22,10 +20,10 @@ def test_donation_creation_and_plan_are_owned_by_donor(client: TestClient) -> No
         "dietaryTags": ["vegetarian"],
         "declaredAllergens": ["wheat", "dairy"],
         "allergenStatus": "DONOR_CONFIRMED",
-        "preparedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "preparedAt": now.isoformat().replace("+00:00", "Z"),
         "storageCondition": "refrigerated",
-        "pickupAvailableAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "usableUntil": cutoff,
+        "pickupAvailableAt": pickup.isoformat().replace("+00:00", "Z"),
+        "usableUntil": cutoff.isoformat().replace("+00:00", "Z"),
     }
     created = client.post("/api/v1/donations", headers=demo_headers("demo-donor"), json=payload)
     assert created.status_code == 201, created.text

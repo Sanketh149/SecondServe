@@ -3,8 +3,9 @@ from app.api.dependencies import get_current_user
 from app.models.user import CurrentUser
 from app.schemas.auth import MeResponse
 
-router = APIRouter(prefix="/users")
+router = APIRouter()
 
+@router.get("/users/me", response_model=MeResponse, include_in_schema=False)
 @router.get("/me", response_model=MeResponse)
 def me(user: CurrentUser = Depends(get_current_user)) -> MeResponse:
     from app.repositories.memory import get_repository

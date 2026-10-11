@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import dependencies, errors, health, users, donations, analysis, rescue_plans, offers, receipts, impact, forecast
+from app.api import dependencies, errors, health, users, donations, analysis, rescue_plans, offers, receipts, impact, forecast, tasks
 from app.config import get_settings
 
 settings = get_settings()
@@ -28,6 +28,7 @@ app.include_router(offers.router, prefix="/api/v1")
 app.include_router(receipts.router, prefix="/api/v1")
 app.include_router(impact.router, prefix="/api/v1")
 app.include_router(forecast.router, prefix="/api/v1")
+app.include_router(tasks.router, prefix="/api/v1")
 
 @app.exception_handler(errors.SecondServeError)
 async def secondserve_error_handler(_, exc: errors.SecondServeError):
@@ -35,6 +36,7 @@ async def secondserve_error_handler(_, exc: errors.SecondServeError):
 
 @app.on_event("startup")
 async def startup() -> None:
-    from app.repositories import memory
+    if settings.demo_mode:
+        from app.repositories import memory
 
-    memory.initialize_demo_data()
+        memory.initialize_demo_data()

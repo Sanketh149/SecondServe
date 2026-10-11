@@ -14,6 +14,7 @@ import { Link, NavLink, Outlet, useLocation, useParams } from "react-router-dom"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import type { DonationStatus } from "@/lib/demo-data"
+import { useDemoStore } from "@/lib/demo-context"
 
 const donorNav = [
   { to: "/donor/dashboard", label: "Overview", icon: Home },
@@ -85,6 +86,7 @@ function Shell({
   recipient?: boolean
   recipientId?: string
 }) {
+  const { apiError, apiMode, loading, refresh } = useDemoStore()
   const recipientItems = [
     { to: `/recipient/${recipientId}/offers`, label: "Offers", icon: HeartHandshake },
     { to: `/recipient/${recipientId}/capacity`, label: "Capacity & needs", icon: ClipboardList },
@@ -140,7 +142,7 @@ function Shell({
             <span>{current?.label ?? "Overview"}</span>
           </div>
           <div className="topbar-right">
-            <span className="sample-label">DEMO</span>
+            <span className="sample-label">{apiMode ? "BACKEND" : "DEMO"}</span>
             <button
               aria-label="Notifications are disabled in the demo"
               className="icon-button"
@@ -166,6 +168,22 @@ function Shell({
             </div>
           </div>
         </header>
+        {apiMode && (
+          <div className="api-status">
+            {apiError ? (
+              <div className="api-status-error" role="alert">
+                <span>{apiError}</span>
+                <button onClick={() => void refresh().catch(() => undefined)} type="button">
+                  Retry
+                </button>
+              </div>
+            ) : loading ? (
+              <span role="status">Loading live backend data…</span>
+            ) : (
+              <span>Connected to configured backend · demo identity</span>
+            )}
+          </div>
+        )}
         <main className="page-content">{children}</main>
         <nav aria-label="Mobile primary navigation" className="mobile-nav">
           {items.map(({ to, label, icon: Icon }) => (

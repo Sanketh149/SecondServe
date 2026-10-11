@@ -14,10 +14,14 @@ class Settings(BaseSettings):
     firestore_database: str = "(default)"
     firestore_project_id: str | None = None
     gcs_bucket: str | None = None
+    vertex_ai_project_id: str | None = None
     vertex_ai_location: str = "us-central1"
     gemini_model: str = "gemini-2.5-flash"
     google_maps_api_key: str | None = None
     cloud_tasks_queue: str = "secondserve-offers"
+    cloud_tasks_project_id: str | None = None
+    cloud_tasks_location: str | None = None
+    cloud_tasks_service_url: str | None = None
     cloud_tasks_service_account: str | None = None
     offer_ttl_minutes: int = 5
     max_upload_bytes: int = 5 * 1024 * 1024

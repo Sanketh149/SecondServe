@@ -30,6 +30,7 @@ class InMemoryRepository:
         self.offers: dict[str, Offer] = {}
         self.receipts: dict[str, Receipt] = {}
         self.events: dict[str, list[Event]] = {}
+        self.handoff_codes: dict[str, str] = {}
 
     def initialize_demo_data(self) -> None:
         if self.users:
@@ -78,6 +79,15 @@ class InMemoryRepository:
     def get_analysis(self, analysis_id: str) -> FoodAnalysis | None:
         return deepcopy(self.analyses.get(analysis_id))
 
+    def update_analysis(self, analysis_id: str, **changes: Any) -> FoodAnalysis | None:
+        analysis = self.analyses.get(analysis_id)
+        if analysis is None:
+            return None
+        for key, value in changes.items():
+            setattr(analysis, key, value)
+        analysis.updated_at = utc_now()
+        return deepcopy(analysis)
+
     def create_donation(self, donation: Donation) -> Donation:
         self.donations[donation.donation_id] = donation
         self.events.setdefault(donation.donation_id, []).append(Event(event_id=f"evt-{uuid4()}", actor_id=donation.donor_organization_id, event_type="DONATION_CREATED", occurred_at=donation.created_at, payload={"donationId": donation.donation_id}))
@@ -88,6 +98,15 @@ class InMemoryRepository:
 
     def list_donations(self, organization_id: str) -> list[Donation]:
         return deepcopy([donation for donation in self.donations.values() if donation.donor_organization_id == organization_id])
+
+    def list_allocations_for_donation(self, donation_id: str) -> list[Allocation]:
+        return deepcopy([item for item in self.allocations.values() if item.donation_id == donation_id])
+
+    def list_allocations_for_plan(self, plan_id: str) -> list[Allocation]:
+        return deepcopy([item for item in self.allocations.values() if item.plan_id == plan_id])
+
+    def list_offers_for_donation(self, donation_id: str) -> list[Offer]:
+        return deepcopy([item for item in self.offers.values() if item.donation_id == donation_id])
 
     def update_donation(self, donation_id: str, **changes: Any) -> Donation | None:
         donation = self.donations.get(donation_id)
@@ -144,11 +163,34 @@ class InMemoryRepository:
         self.receipts[receipt.receipt_id] = receipt
         return deepcopy(receipt)
 
+    def set_handoff_code(self, allocation_id: str, code: str) -> None:
+        self.handoff_codes[allocation_id] = code
+
+    def get_handoff_code(self, allocation_id: str) -> str | None:
+        return self.handoff_codes.get(allocation_id)
+
     def get_receipt_by_handoff(self, handoff_code_hash: str) -> Receipt | None:
         return deepcopy(next((receipt for receipt in self.receipts.values() if receipt.handoff_code_hash == handoff_code_hash), None))
 
     def get_impact(self, organization_id: str) -> dict[str, Any]:
-        receipts = [receipt for receipt in self.receipts.values() if receipt.recipient_organization_id == organization_id]
+        owned_donations = [
+            donation
+            for donation in self.donations.values()
+            if donation.donor_organization_id == organization_id
+        ]
+        donation_ids = {donation.donation_id for donation in owned_donations}
+        receipts = [
+            receipt
+            for receipt in self.receipts.values()
+            if receipt.recipient_organization_id == organization_id
+            or receipt.donation_id in donation_ids
+        ]
+        if owned_donations:
+            return {
+                "confirmed_quantity": sum(item.confirmed_quantity for item in owned_donations),
+                "receipts_count": sum(item.donation_id in donation_ids for item in receipts),
+                "period": "all-time",
+            }
         return {"confirmed_quantity": sum(receipt.quantity_received for receipt in receipts), "receipts_count": len(receipts), "period": "all-time"}
 
     def add_event(self, donation_id: str, event: Event) -> Event:

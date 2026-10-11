@@ -1,7 +1,11 @@
 import {
+  useCallback,
+  useEffect,
   useReducer,
+  useState,
   type ReactNode,
 } from "react"
+import { useLocation } from "react-router-dom"
 import { DemoStoreContext } from "@/lib/demo-context"
 import {
   initialDonations,
@@ -9,6 +13,20 @@ import {
   type DemoDonation,
   type NewDonationInput,
 } from "@/lib/demo-data"
+import {
+  analyzeFoodImage,
+  createDonationAndStart,
+  isApiMode,
+  loadDonorDonations,
+  loadImpactSummary,
+  loadRecipientDonations,
+  previewRescuePlan,
+  respondToBackendOffer,
+  submitBackendReceipt,
+  type ApiFoodAnalysis,
+  type ApiImpactSummary,
+  type ApiRescuePlan,
+} from "@/lib/api-client"
 
 type DemoAction =
   | { type: "create"; donation: DemoDonation }
@@ -28,18 +46,25 @@ type DemoAction =
 
 export interface DemoStoreValue {
   donations: DemoDonation[]
-  createDonation: (input: NewDonationInput) => string
+  apiMode: boolean
+  loading: boolean
+  apiError: string | null
+  impactSummary: ApiImpactSummary | null
+  refresh: () => Promise<void>
+  analyzeImage: (file: File) => Promise<ApiFoodAnalysis>
+  previewPlan: (input: NewDonationInput) => Promise<ApiRescuePlan>
+  createDonation: (input: NewDonationInput) => Promise<string>
   respondToOffer: (
     donationId: string,
     allocationId: string,
     decision: "ACCEPT" | "DECLINE",
-  ) => void
+  ) => Promise<void>
   submitReceipt: (
     donationId: string,
     allocationId: string,
     handoffCode: string,
     quantityReceived: number,
-  ) => void
+  ) => Promise<void>
 }
 
 function nextDonationState(
@@ -159,10 +184,62 @@ function reducer(
 }
 
 export function DemoStoreProvider({ children }: { children: ReactNode }) {
-  const [donations, dispatch] = useReducer(reducer, initialDonations)
+  const location = useLocation()
+  const [demoDonations, dispatch] = useReducer(reducer, initialDonations)
+  const [apiDonations, setApiDonations] = useState<DemoDonation[]>([])
+  const [loading, setLoading] = useState(isApiMode)
+  const [apiError, setApiError] = useState<string | null>(null)
+  const [impactSummary, setImpactSummary] = useState<ApiImpactSummary | null>(null)
+
+  const refresh = useCallback(async () => {
+    if (!isApiMode) return
+    setLoading(true)
+    setApiError(null)
+    try {
+      const recipientRoute = location.pathname.startsWith("/recipient/")
+      const [loadedDonations, impact] = await Promise.all([
+        recipientRoute ? loadRecipientDonations() : loadDonorDonations(),
+        loadImpactSummary(),
+      ])
+      setApiDonations(loadedDonations)
+      setImpactSummary(impact)
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Could not load data from the backend."
+      setApiError(message)
+      throw error
+    } finally {
+      setLoading(false)
+    }
+  }, [location.pathname])
+
+  useEffect(() => {
+    if (!isApiMode) return
+    void Promise.resolve()
+      .then(() => refresh())
+      .catch(() => undefined)
+  }, [refresh])
+
+  const donations = isApiMode ? apiDonations : demoDonations
   const value: DemoStoreValue = {
     donations,
-    createDonation(input) {
+    apiMode: isApiMode,
+    loading,
+    apiError,
+    impactSummary,
+    refresh,
+    analyzeImage(file) {
+      return analyzeFoodImage(file)
+    },
+    previewPlan(input) {
+      return previewRescuePlan(input)
+    },
+    async createDonation(input) {
+      if (isApiMode) {
+        const id = await createDonationAndStart(input)
+        await refresh()
+        return id
+      }
       const id = `dn-${crypto.randomUUID()}`
       const donation: DemoDonation = {
         id,
@@ -208,10 +285,20 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
       dispatch({ type: "create", donation })
       return id
     },
-    respondToOffer(donationId, allocationId, decision) {
+    async respondToOffer(donationId, allocationId, decision) {
+      if (isApiMode) {
+        await respondToBackendOffer(donationId, allocationId, decision)
+        await refresh()
+        return
+      }
       dispatch({ type: "respond", donationId, allocationId, decision })
     },
-    submitReceipt(donationId, allocationId, handoffCode, quantityReceived) {
+    async submitReceipt(donationId, allocationId, handoffCode, quantityReceived) {
+      if (isApiMode) {
+        await submitBackendReceipt(allocationId, handoffCode, quantityReceived)
+        await refresh()
+        return
+      }
       dispatch({
         type: "receipt",
         donationId,

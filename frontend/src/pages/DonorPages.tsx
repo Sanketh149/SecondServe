@@ -34,6 +34,7 @@ import {
   type RecipientCandidate,
 } from "@/lib/demo-data"
 import { useDemoStore } from "@/lib/demo-context"
+import type { ApiFoodAnalysis, ApiRescuePlan } from "@/lib/api-client"
 
 function formatStatusDescription(donation: DemoDonation): string {
   if (donation.status === "RECEIVED") return "All allocated meals were confirmed received"
@@ -79,6 +80,22 @@ function getDonorNextAction(donation: DemoDonation) {
     variant: "warning" as const,
     title: "No recipient is currently assigned.",
     description: "Review the plan before treating any quantity as rescued.",
+  }
+}
+
+function getConnectedImpact(
+  donations: DemoDonation[],
+  summary: { confirmedQuantity: number } | null,
+) {
+  const offeredMeals = donations.reduce((total, donation) => total + donation.quantity, 0)
+  const confirmedMeals =
+    summary?.confirmedQuantity ??
+    donations.reduce((total, donation) => total + getConfirmedQuantity(donation), 0)
+  return {
+    confirmedMeals,
+    offeredMeals,
+    rescueRate:
+      offeredMeals === 0 ? 0 : Math.round((confirmedMeals / offeredMeals) * 100),
   }
 }
 
@@ -197,7 +214,7 @@ function OpportunityCard() {
 }
 
 export function DonorDashboardPage() {
-  const { donations } = useDemoStore()
+  const { apiMode, donations, impactSummary } = useDemoStore()
   const active = donations.find((donation) =>
     ["OFFERING", "RELAYED", "ACCEPTED", "PARTIALLY_RECEIVED"].includes(
       donation.status,
@@ -208,7 +225,9 @@ export function DonorDashboardPage() {
       donation.status,
     ),
   ).length
-  const impact = getImpactTotals(donations)
+  const impact = apiMode
+    ? getConnectedImpact(donations, impactSummary)
+    : getImpactTotals(donations)
 
   return (
     <>
@@ -440,8 +459,10 @@ export function DonationsPage() {
 }
 
 export function DonorImpactPage() {
-  const { donations } = useDemoStore()
-  const impact = getImpactTotals(donations)
+  const { apiMode, donations, impactSummary } = useDemoStore()
+  const impact = apiMode
+    ? getConnectedImpact(donations, impactSummary)
+    : getImpactTotals(donations)
   const { confirmedMeals: confirmed } = impact
   const [range, setRange] = useState("This month")
 
@@ -543,6 +564,7 @@ export function DonorImpactPage() {
 }
 
 type DonationDraft = {
+  analysisId?: string
   itemName: string
   category: string
   quantity: number
@@ -563,6 +585,75 @@ function localDateTime(hoursFromNow: number): string {
   return new Date(date.getTime() - offset).toISOString().slice(0, 16)
 }
 
+function localDateTimeFor(date: Date): string {
+  const offset = date.getTimezoneOffset() * 60_000
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16)
+}
+
+function nextDemoPickupWindow(): { pickup: string; cutoff: string } {
+  const timeZone = "America/New_York"
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    weekday: "short",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date())
+  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? ""
+  const day = new Date(
+    Date.UTC(Number(part("year")), Number(part("month")) - 1, Number(part("day"))),
+  )
+  const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+  const currentHour = Number(part("hour"))
+  if (
+    weekdays.indexOf(part("weekday")) === 0 ||
+    weekdays.indexOf(part("weekday")) === 6 ||
+    currentHour >= 9
+  ) {
+    day.setUTCDate(day.getUTCDate() + 1)
+  }
+  while (day.getUTCDay() === 0 || day.getUTCDay() === 6) {
+    day.setUTCDate(day.getUTCDate() + 1)
+  }
+
+  const targetWallClock = Date.UTC(
+    day.getUTCFullYear(),
+    day.getUTCMonth(),
+    day.getUTCDate(),
+    10,
+    0,
+  )
+  let pickupAt = targetWallClock
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const observed = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(new Date(pickupAt))
+    const observedPart = (type: string) =>
+      Number(observed.find((item) => item.type === type)?.value ?? 0)
+    const observedWallClock = Date.UTC(
+      observedPart("year"),
+      observedPart("month") - 1,
+      observedPart("day"),
+      observedPart("hour"),
+      observedPart("minute"),
+    )
+    pickupAt += targetWallClock - observedWallClock
+  }
+  const pickup = new Date(pickupAt)
+  return {
+    pickup: localDateTimeFor(pickup),
+    cutoff: localDateTimeFor(new Date(pickupAt + 5 * 60 * 60 * 1000)),
+  }
+}
+
 function formatLocalDate(value: string): string {
   if (!value) return "Not set"
   return new Date(value).toLocaleString([], {
@@ -579,6 +670,27 @@ function splitQuantity(quantity: number, recipientCount: number): number[] {
   return [first, quantity - first]
 }
 
+function categoryLabel(category: string): string {
+  const labels: Record<string, string> = {
+    prepared_meal: "Prepared meals",
+    bakery: "Bakery",
+    produce: "Produce",
+    packaged_food: "Packaged food",
+    other: "Prepared meals",
+  }
+  return labels[category] ?? category
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : []
+}
+
+function titleCase(value: string): string {
+  return value.replace(/\b\w/g, (character) => character.toUpperCase())
+}
+
 const steps = [
   { title: "Food Passport", helper: "Food details" },
   { title: "Rescue plan", helper: "Feasibility & split" },
@@ -587,25 +699,32 @@ const steps = [
 
 export function NewDonationPage() {
   const navigate = useNavigate()
-  const { createDonation } = useDemoStore()
+  const { analyzeImage, apiMode, createDonation, previewPlan } = useDemoStore()
   const reducedMotion = useReducedMotion() ?? false
   const transition = { duration: reducedMotion ? 0.12 : 0.2, ease: "easeOut" as const }
   const [step, setStep] = useState(0)
   const [analysisApplied, setAnalysisApplied] = useState(false)
+  const [analysisResult, setAnalysisResult] = useState<ApiFoodAnalysis | null>(null)
+  const [analysisLoading, setAnalysisLoading] = useState(false)
+  const [planPreview, setPlanPreview] = useState<ApiRescuePlan | null>(null)
+  const [submitting, setSubmitting] = useState(false)
   const [fileMessage, setFileMessage] = useState("")
-  const [draft, setDraft] = useState<DonationDraft>({
-    itemName: "",
-    category: "Prepared meals",
-    quantity: 32,
-    dietaryTags: [],
-    potentialAllergens: "",
-    allergenStatus: "UNKNOWN",
-    preparedAt: localDateTime(-1),
-    storageCondition: "Refrigerated",
-    pickupAvailableAt: localDateTime(0.05),
-    usableUntil: localDateTime(4),
-    donorConfirmed: false,
-    imageName: "",
+  const [draft, setDraft] = useState<DonationDraft>(() => {
+    const pickupWindow = nextDemoPickupWindow()
+    return {
+      itemName: "",
+      category: "Prepared meals",
+      quantity: 32,
+      dietaryTags: [],
+      potentialAllergens: "",
+      allergenStatus: "UNKNOWN",
+      preparedAt: localDateTime(-1),
+      storageCondition: "Refrigerated",
+      pickupAvailableAt: pickupWindow.pickup,
+      usableUntil: pickupWindow.cutoff,
+      donorConfirmed: false,
+      imageName: "",
+    }
   })
   const [selectedRecipients, setSelectedRecipients] = useState([
     "hope-shelter",
@@ -662,15 +781,54 @@ export function NewDonationPage() {
   function choosePhoto(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
     if (!file) return
-    if (!file.type.startsWith("image/")) {
-      setFileMessage("Choose a JPG, PNG, or WEBP image.")
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setFileMessage("Choose a JPEG, PNG, or WEBP image.")
       return
     }
     updateDraft("imageName", file.name)
-    setFileMessage(
-      "Photo selected. Image analysis is not connected in this demo; enter or sample the details below.",
-    )
     setAnalysisApplied(false)
+    setAnalysisResult(null)
+    setPlanPreview(null)
+    if (!apiMode) {
+      setFileMessage(
+        "Photo selected. Image analysis is not connected in this demo; enter or sample the details below.",
+      )
+      return
+    }
+    setAnalysisLoading(true)
+    setFileMessage("Sending the image to the configured backend for analysis…")
+    void analyzeImage(file)
+      .then((result) => {
+        setAnalysisResult(result)
+        setAnalysisApplied(true)
+        setDraft((current) => ({
+          ...current,
+          analysisId: result.analysisId,
+          itemName:
+            typeof result.candidate.name?.value === "string"
+              ? result.candidate.name.value
+              : current.itemName,
+          category:
+            typeof result.candidate.category?.value === "string"
+              ? categoryLabel(result.candidate.category.value)
+              : current.category,
+          dietaryTags: stringList(result.candidate.dietaryTags?.value).map(
+            titleCase,
+          ),
+          potentialAllergens: stringList(
+            result.candidate.potentialAllergens?.value,
+          ).join(", "),
+          allergenStatus: "UNKNOWN",
+          donorConfirmed: false,
+        }))
+        setFileMessage("Gemini suggestions received. Review and confirm every field; the analysis does not determine food safety.")
+      })
+      .catch((error: unknown) => {
+        const message =
+          error instanceof Error ? error.message : "Image analysis failed."
+        setFileMessage(`${message} You can continue with manual entry.`)
+      })
+      .finally(() => setAnalysisLoading(false))
   }
 
   function useSampleSuggestion() {
@@ -682,9 +840,35 @@ export function NewDonationPage() {
       donorConfirmed: false,
     }))
     setAnalysisApplied(true)
+    setAnalysisResult(null)
+    updateDraft("analysisId", "")
     setFileMessage(
       "Demo sample suggestions applied. They are not generated from your photo and must be reviewed.",
     )
+  }
+
+  function donationInput(): NewDonationInput {
+    return {
+      ...(draft.analysisId ? { analysisId: draft.analysisId } : {}),
+      itemName: draft.itemName,
+      category: draft.category,
+      quantity: draft.quantity,
+      dietaryTags: draft.dietaryTags,
+      declaredAllergens: draft.potentialAllergens
+        .split(/[,;]/)
+        .map((allergen) => allergen.trim())
+        .filter(Boolean),
+      allergenStatus: draft.allergenStatus,
+      preparedAt: draft.preparedAt,
+      storageCondition: draft.storageCondition,
+      pickupAvailableAt: draft.pickupAvailableAt,
+      usableUntil: draft.usableUntil,
+      donorConfirmed: draft.donorConfirmed,
+      allocations: selectedRecipients.map((recipientId, index) => ({
+        recipientId,
+        quantity: allocationQuantities[index] ?? 0,
+      })),
+    }
   }
 
   function toggleRecipient(candidate: RecipientCandidate) {
@@ -711,6 +895,10 @@ export function NewDonationPage() {
 
   function validateStep(): boolean {
     if (step === 0) {
+      if (analysisLoading) {
+        setError("Wait for image analysis to finish, or continue with manual entry.")
+        return false
+      }
       if (!draft.itemName.trim() || !draft.category || draft.quantity < 1) {
         setError("Enter the food name, category, and a positive quantity.")
         return false
@@ -732,16 +920,20 @@ export function NewDonationPage() {
       if (
         new Date(draft.pickupAvailableAt).getTime() +
           estimatedRouteMinutes * 60_000 >
-        new Date(draft.usableUntil).getTime()
+        new Date(draft.usableUntil).getTime() &&
+        !apiMode
       ) {
         setError("The selected route would arrive after your usable-until cutoff.")
         return false
       }
-      if (selectedRecipients.length === 0 || allocatedQuantity !== draft.quantity) {
+      if (
+        !apiMode &&
+        (selectedRecipients.length === 0 || allocatedQuantity !== draft.quantity)
+      ) {
         setError("Allocate the full donation quantity across one or two recipients.")
         return false
       }
-      if (selectedRecipients.some((id) =>
+      if (!apiMode && selectedRecipients.some((id) =>
         recipientCandidates.find((candidate) => candidate.id === id)?.readiness !== "READY",
       )) {
         setError("Only READY recipients can receive automatic offers.")
@@ -758,24 +950,48 @@ export function NewDonationPage() {
     return true
   }
 
-  function goNext() {
-    if (validateStep()) setStep((current) => Math.min(2, current + 1))
+  async function goNext() {
+    if (!validateStep()) return
+    if (step === 1 && apiMode) {
+      try {
+        const preview = await previewPlan(donationInput())
+        setPlanPreview(preview)
+        if (preview.status === "NONE" || preview.status === "UNKNOWN") {
+          setError(
+            preview.status === "UNKNOWN"
+              ? "The backend could not verify a reliable route. No offer can be started."
+              : "The backend found no eligible recipient for this donation.",
+          )
+          return
+        }
+      } catch (previewError) {
+        setError(
+          previewError instanceof Error
+            ? previewError.message
+            : "Could not calculate a backend rescue plan.",
+        )
+        return
+      }
+    }
+    setError("")
+    setStep((current) => Math.min(2, current + 1))
   }
 
-  function startRescue() {
+  async function startRescue() {
     if (!validateStep()) return
-    const input: NewDonationInput = {
-      itemName: draft.itemName.trim(),
-      category: draft.category,
-      quantity: draft.quantity,
-      usableUntil: formatLocalDate(draft.usableUntil),
-      allocations: selectedRecipients.map((recipientId, index) => ({
-        recipientId,
-        quantity: allocationQuantities[index] ?? 0,
-      })),
+    setSubmitting(true)
+    try {
+      const id = await createDonation(donationInput())
+      navigate(`/donor/donations/${id}`)
+    } catch (submitError) {
+      setError(
+        submitError instanceof Error
+          ? submitError.message
+          : "Could not start rescue offers.",
+      )
+    } finally {
+      setSubmitting(false)
     }
-    const id = createDonation(input)
-    navigate(`/donor/donations/${id}`)
   }
 
   return (
@@ -835,24 +1051,28 @@ export function NewDonationPage() {
                 <span className="upload-action">Choose image</span>
               </label>
               {fileMessage && (
-                <ReadinessNotice variant={analysisApplied ? "warning" : "info"}>
+                <ReadinessNotice
+                  variant={analysisApplied && !analysisResult ? "warning" : "info"}
+                >
                   {fileMessage}
                 </ReadinessNotice>
               )}
-              <div className="sample-analysis-row">
-                <span>
-                  <Sparkles aria-hidden="true" size={16} />
-                  Want to preview the AI Passport?
-                </span>
-                <Button
-                  onClick={useSampleSuggestion}
-                  type="button"
-                  variant="outline"
-                >
-                  Use sample suggestion
-                </Button>
-              </div>
-              {analysisApplied && (
+              {!apiMode && (
+                <div className="sample-analysis-row">
+                  <span>
+                    <Sparkles aria-hidden="true" size={16} />
+                    Want to preview the AI Passport?
+                  </span>
+                  <Button
+                    onClick={useSampleSuggestion}
+                    type="button"
+                    variant="outline"
+                  >
+                    Use sample suggestion
+                  </Button>
+                </div>
+              )}
+              {analysisApplied && !analysisResult && (
                 <div className="suggestion-banner">
                   <Badge variant="neutral">DEMO AI SUGGESTION</Badge>
                   <span>
@@ -860,11 +1080,38 @@ export function NewDonationPage() {
                   </span>
                 </div>
               )}
+              {analysisResult && (
+                <div aria-label="Gemini field suggestions" className="analysis-provenance-grid">
+                  {[
+                    ["name", "Food name"],
+                    ["category", "Category"],
+                    ["dietaryTags", "Dietary tags"],
+                    ["potentialAllergens", "Potential allergens"],
+                    ["visiblePackaging", "Visible packaging"],
+                  ].map(([key, label]) => {
+                    const field = analysisResult.candidate[key]
+                    return (
+                      <span key={key}>
+                        <strong>{label}</strong>
+                        <small>
+                          {field?.source === "AI_SUGGESTED"
+                            ? `Gemini suggestion · ${Math.round(field.confidence * 100)}% confidence · confirm`
+                            : "Unknown · confirm manually"}
+                        </small>
+                      </span>
+                    )
+                  })}
+                </div>
+              )}
 
               <div className="form-grid">
                 <label className="field-label field-span-2">
                   Food name
-                  {analysisApplied && <span className="field-provenance">Sample suggestion · review</span>}
+                  {analysisApplied && (
+                    <span className="field-provenance">
+                      {analysisResult ? "Gemini suggestion · donor review required" : "Sample suggestion · review"}
+                    </span>
+                  )}
                   <Input
                     onChange={(event) => updateDraft("itemName", event.target.value)}
                     placeholder="e.g. Vegetarian pasta meals"
@@ -1029,6 +1276,22 @@ export function NewDonationPage() {
                 </span>
               </ReadinessNotice>
 
+              {apiMode ? (
+                <>
+                  <ReadinessNotice variant="info">
+                    <MapPin aria-hidden="true" size={18} />
+                    <span>
+                      <strong>Recipients and split are calculated by the backend.</strong>
+                      <span>
+                        Continue to preview eligible recipients, capacity, route
+                        feasibility, and donor-cutoff checks. No offer starts during preview.
+                      </span>
+                    </span>
+                  </ReadinessNotice>
+                  {error && <p className="form-error" role="alert">{error}</p>}
+                </>
+              ) : (
+              <>
               <div className="recipient-picker-heading">
                 <div>
                   <h3>Choose recipients</h3>
@@ -1173,6 +1436,8 @@ export function NewDonationPage() {
                 </span>
                 <Badge variant={routeForecast.variant}>{routeForecast.label}</Badge>
               </motion.div>
+              </>
+              )}
             </Card>
             </motion.div>
           )}
@@ -1201,7 +1466,11 @@ export function NewDonationPage() {
                   <p>{draft.category} · {draft.quantity} meals</p>
                 </div>
                 <Badge variant={analysisApplied ? "neutral" : "outline"}>
-                  {analysisApplied ? "Sample suggestions reviewed" : "Manual entry"}
+                  {analysisResult
+                    ? "Gemini suggestions · donor review"
+                    : analysisApplied
+                      ? "Sample suggestions · demo"
+                      : "Manual entry"}
                 </Badge>
               </div>
               <div className="review-grid">
@@ -1214,24 +1483,102 @@ export function NewDonationPage() {
               </div>
               <div className="review-section-heading">
                 <h3>Rescue plan</h3>
-                <Badge variant="success">READY</Badge>
+                <Badge
+                  variant={
+                    apiMode && planPreview?.status === "PARTIAL"
+                      ? "warning"
+                      : "success"
+                  }
+                >
+                  {apiMode
+                    ? `${planPreview?.status ?? "NOT CHECKED"} · backend`
+                    : "READY · sample"}
+                </Badge>
               </div>
               <div className="review-allocation-list">
-                {allocations.map((item) => (
-                  <motion.div
-                    animate={{ opacity: 1, x: 0 }}
-                    className="review-allocation"
-                    initial={{ opacity: 0, x: reducedMotion ? 0 : -5 }}
-                    key={item.recipient.id}
-                    layout
-                    transition={transition}
-                  >
-                    <span className="candidate-avatar">{item.recipient.initials}</span>
-                    <span><strong>{item.recipient.name}</strong><small>{item.recipient.eta} · {item.recipient.distance} away</small></span>
-                    <b>{item.quantity} meals</b>
-                  </motion.div>
-                ))}
+                {apiMode
+                  ? planPreview?.allocations.map((item) => {
+                      const mappedId =
+                        item.recipientId === "rcp-hope"
+                          ? "hope-shelter"
+                          : item.recipientId === "rcp-community"
+                            ? "community-kitchen"
+                            : item.recipientId === "rcp-pantry"
+                              ? "neighborhood-kitchen"
+                              : item.recipientId
+                      const candidate = recipientCandidates.find(
+                        (recipient) => recipient.id === mappedId,
+                      )
+                      return (
+                        <motion.div
+                          animate={{ opacity: 1, x: 0 }}
+                          className="review-allocation"
+                          initial={{ opacity: 0, x: reducedMotion ? 0 : -5 }}
+                          key={item.allocationId}
+                          layout
+                          transition={transition}
+                        >
+                          <span className="candidate-avatar">
+                            {candidate?.initials ?? item.recipientName.slice(0, 2)}
+                          </span>
+                          <span>
+                            <strong>{item.recipientName}</strong>
+                            <small>
+                              {item.reasonCodes.join(" · ").replaceAll("_", " ").toLowerCase()}
+                            </small>
+                          </span>
+                          <b>{item.quantity} meals</b>
+                        </motion.div>
+                      )
+                    })
+                  : allocations.map((item) => (
+                      <motion.div
+                        animate={{ opacity: 1, x: 0 }}
+                        className="review-allocation"
+                        initial={{ opacity: 0, x: reducedMotion ? 0 : -5 }}
+                        key={item.recipient.id}
+                        layout
+                        transition={transition}
+                      >
+                        <span className="candidate-avatar">{item.recipient.initials}</span>
+                        <span>
+                          <strong>{item.recipient.name}</strong>
+                          <small>{item.recipient.eta} · {item.recipient.distance} away</small>
+                        </span>
+                        <b>{item.quantity} meals</b>
+                      </motion.div>
+                    ))}
               </div>
+              {apiMode && planPreview && (
+                <>
+                  <ReadinessNotice variant={planPreview.status === "FULL" ? "success" : "warning"}>
+                    <MapPin aria-hidden="true" size={18} />
+                    <span>
+                      <strong>
+                        {planPreview.status === "FULL"
+                          ? "Backend preview covers the full quantity."
+                          : `${planPreview.unallocatedQuantity} meals remain unallocated.`}
+                      </strong>
+                      <span>
+                        {planPreview.route
+                          ? `${planPreview.route.provider === "GOOGLE_ROUTES" ? "Google Routes" : "Sample route"} · ${Math.round((planPreview.route.durationSeconds ?? 0) / 60)} min · ${planPreview.route.distanceMeters ?? 0} m`
+                          : "No route was returned for this plan."}
+                      </span>
+                    </span>
+                  </ReadinessNotice>
+                  {planPreview.notReadyCandidates.length > 0 && (
+                    <div className="candidate-reasons">
+                      Not selected:{" "}
+                      {planPreview.notReadyCandidates
+                        .map(
+                          (candidate) =>
+                            `${candidate.recipientName || "Candidate"} (${candidate.reasonCodes.join(", ").toLowerCase().replaceAll("_", " ")})`,
+                        )
+                        .join(" · ")}
+                    </div>
+                  )}
+                </>
+              )}
               <ReadinessNotice variant="warning">
                 <AlertTriangle aria-hidden="true" size={18} />
                 <span>
@@ -1268,12 +1615,13 @@ export function NewDonationPage() {
               <ChevronLeft aria-hidden="true" size={17} /> Back
             </Button>
             {step < 2 ? (
-              <Button onClick={goNext} type="button">
+              <Button disabled={analysisLoading} onClick={() => void goNext()} type="button">
                 Continue <ChevronRight aria-hidden="true" size={17} />
               </Button>
             ) : (
-              <Button onClick={startRescue} type="button">
-                Start rescue offers <ArrowRight aria-hidden="true" size={17} />
+              <Button disabled={submitting} onClick={() => void startRescue()} type="button">
+                {submitting ? "Starting…" : "Start rescue offers"}
+                {!submitting && <ArrowRight aria-hidden="true" size={17} />}
               </Button>
             )}
           </div>
@@ -1356,7 +1704,7 @@ function AllocationProgress({ donation }: { donation: DemoDonation }) {
 
 export function TrackDonationPage() {
   const { donationId } = useParams()
-  const { donations } = useDemoStore()
+  const { apiMode, donations } = useDemoStore()
   const reducedMotion = useReducedMotion() ?? false
   const transition = { duration: reducedMotion ? 0.12 : 0.2, ease: "easeOut" as const }
   const donation = donations.find((item) => item.id === donationId)
@@ -1392,6 +1740,43 @@ export function TrackDonationPage() {
             <div className="tracking-panel-content">
               <RescueTimeline status={donation.status} />
               <div className="tracking-event-list">
+                {apiMode ? (
+                  donation.events?.map((event) => {
+                    const isReceipt = event.type === "RECEIPT_CONFIRMED"
+                    const isActive = ["OFFER_STARTED", "OFFER_RELAYED"].includes(
+                      event.type,
+                    )
+                    return (
+                      <div
+                        className={`tracking-event tracking-event--${isReceipt ? "received" : isActive ? "current" : "done"}`}
+                        key={`${event.type}-${event.occurredAt}`}
+                      >
+                        <span className="event-marker">
+                          {isReceipt ? (
+                            <Check aria-hidden="true" size={13} />
+                          ) : isActive ? (
+                            <Clock3 aria-hidden="true" size={13} />
+                          ) : (
+                            <Check aria-hidden="true" size={13} />
+                          )}
+                        </span>
+                        <div>
+                          <strong>{event.type.replaceAll("_", " ").toLowerCase()}</strong>
+                          <small>{event.detail}</small>
+                        </div>
+                        <small>
+                          {new Date(event.occurredAt).toLocaleString([], {
+                            month: "short",
+                            day: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })}
+                        </small>
+                      </div>
+                    )
+                  })
+                ) : (
+                <>
                 <div className="tracking-event tracking-event--done">
                   <span className="event-marker"><Check aria-hidden="true" size={13} /></span>
                   <div><strong>Donation details confirmed</strong><small>{donation.quantity} {donation.unit} · donor-entered cutoff: {donation.usableUntil}</small></div>
@@ -1431,7 +1816,9 @@ export function TrackDonationPage() {
                     <small>
                       {donation.status === "ACCEPTED"
                         ? "Handoff pending"
-                        : "Sample response window · not live"}
+                        : apiMode && donation.responseWindowEndsAt
+                          ? `Respond by ${new Date(donation.responseWindowEndsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+                          : "Sample response window · not live"}
                     </small>
                   </motion.div>
                 )}
@@ -1464,6 +1851,8 @@ export function TrackDonationPage() {
                   </motion.div>
                 )}
                 </AnimatePresence>
+                </>
+                )}
               </div>
               {nextAction && (
                 <div className="tracking-next-action">
@@ -1520,8 +1909,22 @@ export function TrackDonationPage() {
                     <div className="countdown-box">
                       <Clock3 aria-hidden="true" size={17} />
                       <span>
-                        <strong>Sample response window</strong>
-                        <small>Illustrative only · not a live timer</small>
+                        {apiMode && donation.responseWindowEndsAt ? (
+                          <>
+                            <strong>Response due by</strong>
+                            <small>
+                              {new Date(donation.responseWindowEndsAt).toLocaleTimeString([], {
+                                hour: "numeric",
+                                minute: "2-digit",
+                              })}
+                            </small>
+                          </>
+                        ) : (
+                          <>
+                            <strong>Sample response window</strong>
+                            <small>Illustrative only · not a live timer</small>
+                          </>
+                        )}
                       </span>
                     </div>
                   )}

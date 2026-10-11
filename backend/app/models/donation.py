@@ -39,6 +39,7 @@ class Donation(TimestampModel):
     status: DonationStatus
     plan_id: str | None
     confirmed_quantity: int = 0
+    handoff_code_hash: str | None = Field(default=None, exclude=True)
 
 
 class CreateDonationRequest(BaseModel):

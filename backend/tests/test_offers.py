@@ -1,11 +1,9 @@
-from datetime import datetime, timedelta, timezone
-
 from fastapi.testclient import TestClient
-from tests.conftest import demo_headers
+from tests.conftest import demo_headers, demo_rescue_window
 
 
 def test_offer_started_and_declined_relay_is_state_safe(client: TestClient) -> None:
-    now = datetime.now(timezone.utc)
+    now, pickup, cutoff = demo_rescue_window()
     payload = {
         "itemName": "Vegetarian pasta meal",
         "category": "prepared_meal",
@@ -16,8 +14,8 @@ def test_offer_started_and_declined_relay_is_state_safe(client: TestClient) -> N
         "allergenStatus": "NOT_APPLICABLE",
         "preparedAt": now.isoformat().replace("+00:00", "Z"),
         "storageCondition": "refrigerated",
-        "pickupAvailableAt": now.isoformat().replace("+00:00", "Z"),
-        "usableUntil": (now + timedelta(days=1)).isoformat().replace("+00:00", "Z"),
+        "pickupAvailableAt": pickup.isoformat().replace("+00:00", "Z"),
+        "usableUntil": cutoff.isoformat().replace("+00:00", "Z"),
     }
     created = client.post("/api/v1/donations", headers=demo_headers("demo-donor"), json=payload)
     donation_id = created.json()["donationId"]

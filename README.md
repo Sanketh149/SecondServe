@@ -5,9 +5,11 @@ rescue. Donors review and confirm food details, recipients are matched against
 need and capacity, unanswered offers can be relayed, and only recipient-confirmed
 handoffs count as rescued.
 
-> **Prototype status:** The current frontend is an interactive demo with
-> synthetic data and in-memory state. Firebase, Gemini, Google Routes, and a
-> production backend are not connected. Refreshing the page resets demo changes.
+> **Prototype status:** The repository now includes a FastAPI backend and an
+> optional frontend API mode. The local repository is still an in-memory demo
+> backend: Firestore, Cloud Storage, Cloud Tasks, deployed Firebase auth, and a
+> production service are not connected. Gemini and Google Routes call real
+> Google Cloud services only when their backend credentials/configuration exist.
 
 ## Product scope
 
@@ -48,6 +50,32 @@ npm run lint
 The app prints a local URL after the development server starts. Use the entry
 screen to open the donor workspace or a seeded recipient workspace.
 
+## Run the API-backed local demo
+
+Requirements: Python 3.11+ and `uv` (or an equivalent virtual-environment tool).
+
+```bash
+cd backend
+uv venv
+uv pip install --python .venv/bin/python -r requirements.txt
+cp .env.example .env
+uv run --python .venv/bin/python uvicorn app.main:app --reload --port 8000
+```
+
+In another terminal, enable the API mode and launch the frontend:
+
+```bash
+cd frontend
+cp .env.example .env.local
+npm run dev
+```
+
+The backend defaults to seeded demo identities for this local flow. This mode
+is not authentication and must not be enabled on a public deployment. Without
+Vertex AI credentials/project configuration, food image analysis returns an
+explicit error and allows manual entry. Without a Maps API key, route estimates
+are synthetic and labeled as demo estimates.
+
 ## Demo screens
 
 | Route | Screen |
@@ -75,14 +103,17 @@ images are ready to insert into a presentation or Google Doc.
 ## Current implementation and planned integrations
 
 **Implemented:** Responsive React, TypeScript, and Vite frontend; donor and
-recipient journeys; typed synthetic data; in-memory demo interactions; and
-reduced-motion-aware UI transitions.
+recipient journeys; an optional typed FastAPI integration for food-image
+analysis, plan preview/creation, offers, receipts, impact, and donation
+tracking; in-memory backend demo records; Gemini via Vertex AI when configured;
+Google Routes when configured; and reduced-motion-aware UI transitions.
 
-**Planned in the locked architecture, not connected in this demo:** Firebase
-Authentication, a Python FastAPI service on Google Cloud Run, Firestore and
-Cloud Storage, Gemini through Vertex AI, Cloud Tasks for offer expiry/relay,
-and Google Maps Routes API. The frontend demo must not be presented as live
-AI analysis, routing, authentication, or real community impact.
+**Still not production-integrated:** Firestore persistence, Cloud Storage image
+retention/deletion, Cloud Tasks-backed timeout expiry, deployed Firebase user
+profile provisioning/authorization, Google Cloud deployment, and a fully
+transactional offer/receipt state machine. The current backend repository is
+in-memory; data is lost on restart. Never present local demo data as real
+community impact.
 
 ## Team ownership
 

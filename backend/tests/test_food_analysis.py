@@ -6,7 +6,7 @@ def test_food_analysis_returns_unverified_suggestions(client: TestClient) -> Non
     response = client.post(
         "/api/v1/donations/analyze",
         headers=demo_headers("demo-donor"),
-        files={"file": ("meal.jpg", b"image-bytes", "image/jpeg")},
+        files={"file": ("meal.jpg", b"\xff\xd8\xffimage-bytes", "image/jpeg")},
     )
     assert response.status_code == 200
     body = response.json()

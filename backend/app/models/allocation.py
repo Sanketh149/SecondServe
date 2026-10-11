@@ -27,3 +27,4 @@ class Allocation(TimestampModel):
     confirmed_quantity: int = 0
     active_candidate_index: int = 0
     assigned_candidate_ids: list[str] = Field(default_factory=list)
+    handoff_code_hash: str | None = Field(default=None, exclude=True)

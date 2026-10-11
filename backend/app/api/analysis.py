@@ -5,6 +5,7 @@ from app.models.user import CurrentUser
 from app.repositories.memory import get_repository
 from app.schemas.analysis import AnalysisResponse
 from app.services.gemini_service import GeminiService
+from app.config import get_settings
 
 router = APIRouter(prefix="/donations/analyze")
 
@@ -14,7 +15,7 @@ async def analyze_image(
     user: CurrentUser = Depends(require_role("donor")),
 ) -> AnalysisResponse:
     content_type = file.content_type or ""
-    image = await file.read()
+    image = await file.read(get_settings().max_upload_bytes + 1)
     analysis = GeminiService(get_repository()).analyze(user.uid, image, file.filename or "upload", content_type)
     return AnalysisResponse(
         analysis_id=analysis.analysis_id,

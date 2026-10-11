@@ -67,7 +67,7 @@ function RecipientOfferCard({ donation }: { donation: DemoDonation }) {
       item.recipientId === account.candidateId &&
       (item.status === "OFFERING" || item.status === "ACCEPTED"),
   )
-  const { respondToOffer, submitReceipt } = useDemoStore()
+  const { apiMode, respondToOffer, submitReceipt } = useDemoStore()
   const [handoffCode, setHandoffCode] = useState("")
   const [quantityReceived, setQuantityReceived] = useState(
     allocation?.quantity ?? 1,
@@ -79,13 +79,21 @@ function RecipientOfferCard({ donation }: { donation: DemoDonation }) {
   const currentAllocation = allocation
   const isAccepted = currentAllocation.status === "ACCEPTED"
 
-  function respond(decision: "ACCEPT" | "DECLINE") {
+  async function respond(decision: "ACCEPT" | "DECLINE") {
     setError("")
-    respondToOffer(donation.id, currentAllocation.id, decision)
+    try {
+      await respondToOffer(donation.id, currentAllocation.id, decision)
+    } catch (responseError) {
+      setError(
+        responseError instanceof Error
+          ? responseError.message
+          : "Could not record your response. Refresh and try again.",
+      )
+    }
   }
 
-  function confirmReceipt() {
-    if (handoffCode.trim() !== donation.handoffCode) {
+  async function confirmReceipt() {
+    if (!apiMode && handoffCode.trim() !== donation.handoffCode) {
       setError("That code doesn't match. Confirm it with the donor at handoff.")
       return
     }
@@ -97,21 +105,29 @@ function RecipientOfferCard({ donation }: { donation: DemoDonation }) {
       setError(`Enter a whole number between 1 and ${currentAllocation.quantity}.`)
       return
     }
-    submitReceipt(
-      donation.id,
-      currentAllocation.id,
-      handoffCode.trim(),
-      quantityReceived,
-    )
-    setError("")
-    navigate(`/recipient/${account.id}/received`, {
-      state: {
-        receiptConfirmation: {
-          itemName: donation.itemName,
-          quantity: quantityReceived,
+    try {
+      await submitReceipt(
+        donation.id,
+        currentAllocation.id,
+        handoffCode.trim(),
+        quantityReceived,
+      )
+      setError("")
+      navigate(`/recipient/${account.id}/received`, {
+        state: {
+          receiptConfirmation: {
+            itemName: donation.itemName,
+            quantity: quantityReceived,
+          },
         },
-      },
-    })
+      })
+    } catch (receiptError) {
+      setError(
+        receiptError instanceof Error
+          ? receiptError.message
+          : "Could not confirm the handoff. Check the code and try again.",
+      )
+    }
   }
 
   return (
@@ -119,7 +135,9 @@ function RecipientOfferCard({ donation }: { donation: DemoDonation }) {
       <div className="offer-card-top">
         <span className="offer-food-icon"><Utensils aria-hidden="true" size={20} /></span>
         <div>
-          <span className="offer-eyebrow">FOOD RESCUE OFFER · SAMPLE</span>
+          <span className="offer-eyebrow">
+            FOOD RESCUE OFFER · {apiMode ? "BACKEND DEMO" : "SAMPLE"}
+          </span>
           <h2>{donation.itemName}</h2>
           <p>{donation.category} · Offered by Green Leaf Kitchen</p>
         </div>
@@ -153,19 +171,33 @@ function RecipientOfferCard({ donation }: { donation: DemoDonation }) {
           <div className="offer-window-note">
             <Clock3 aria-hidden="true" size={16} />
             <span>
-              <strong>Sample response window</strong>
-              <small>Illustrative only · not a live timer</small>
+              {apiMode && donation.responseWindowEndsAt ? (
+                <>
+                  <strong>Response due by</strong>
+                  <small>
+                    {new Date(donation.responseWindowEndsAt).toLocaleTimeString([], {
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}
+                  </small>
+                </>
+              ) : (
+                <>
+                  <strong>Sample response window</strong>
+                  <small>Illustrative only · not a live timer</small>
+                </>
+              )}
             </span>
           </div>
           <div>
             <Button
-              onClick={() => respond("DECLINE")}
+              onClick={() => void respond("DECLINE")}
               type="button"
               variant="outline"
             >
               Decline offer
             </Button>
-            <Button onClick={() => respond("ACCEPT")} type="button">
+            <Button onClick={() => void respond("ACCEPT")} type="button">
               Accept offer <Check aria-hidden="true" size={16} />
             </Button>
           </div>
@@ -222,7 +254,7 @@ function RecipientOfferCard({ donation }: { donation: DemoDonation }) {
               <span>Enter the amount actually received, not the amount planned.</span>
             </span>
           </ReadinessNotice>
-          <Button onClick={confirmReceipt} type="button">
+          <Button onClick={() => void confirmReceipt()} type="button">
             Confirm food received <PackageCheck aria-hidden="true" size={16} />
           </Button>
         </motion.div>
@@ -235,7 +267,7 @@ function RecipientOfferCard({ donation }: { donation: DemoDonation }) {
 
 export function RecipientOffersPage() {
   const account = useRecipientAccount()
-  const { donations } = useDemoStore()
+  const { apiMode, donations } = useDemoStore()
   const matchingDonations = donations.filter((donation) =>
     donation.allocations.some(
       (allocation) =>
@@ -283,7 +315,9 @@ export function RecipientOffersPage() {
             <p>
               {acceptedCount > 0
                 ? "Your response is recorded. Check Received for confirmed handoffs."
-                : "There are no sample offers awaiting this organization right now."}
+                : apiMode
+                  ? "There are no backend offers awaiting this organization right now."
+                  : "There are no sample offers awaiting this organization right now."}
             </p>
             <Link className="text-link" to={`/recipient/${account.id}/received`}>
               View received food <ArrowRight aria-hidden="true" size={14} />
@@ -292,7 +326,9 @@ export function RecipientOffersPage() {
         </Card>
       )}
       <p className="demo-disclaimer">
-        This role is a seeded demo account. Offers and responses are not connected to a live organization.
+        {apiMode
+          ? "Backend API mode uses seeded demo identities and organizations; it is not connected to production accounts."
+          : "This role is a seeded demo account. Offers and responses are not connected to a live organization."}
       </p>
     </>
   )
@@ -498,7 +534,7 @@ export function RecipientReceivedPage() {
 
 export function RecipientImpactPage() {
   const account = useRecipientAccount()
-  const { donations } = useDemoStore()
+  const { apiMode, donations, impactSummary } = useDemoStore()
   const confirmed = donations.reduce(
     (total, donation) =>
       total +
@@ -512,7 +548,11 @@ export function RecipientImpactPage() {
       ),
     0,
   )
-  const historicalReceived = account.candidateId === "hope-shelter" ? 248 : 176
+  const historicalReceived = apiMode
+    ? impactSummary?.confirmedQuantity ?? 0
+    : account.candidateId === "hope-shelter"
+      ? 248
+      : 176
 
   return (
     <>
@@ -530,7 +570,7 @@ export function RecipientImpactPage() {
       <div className="metrics-grid impact-metrics">
         <MetricCard
           icon={<CheckCircle2 aria-hidden="true" size={17} />}
-          note="Across seeded history and this session"
+          note={apiMode ? "Backend-confirmed receipts" : "Across seeded history and this session"}
           title="Meals received"
           value={(historicalReceived + confirmed).toLocaleString()}
         />
@@ -538,7 +578,13 @@ export function RecipientImpactPage() {
           icon={<Utensils aria-hidden="true" size={17} />}
           note="Synthetic history only"
           title="Completed rescues"
-          value={String(account.candidateId === "hope-shelter" ? 18 : 11)}
+          value={String(
+            apiMode
+              ? impactSummary?.receiptsCount ?? 0
+              : account.candidateId === "hope-shelter"
+                ? 18
+                : 11,
+          )}
         />
         <MetricCard
           icon={<MapPin aria-hidden="true" size={17} />}
