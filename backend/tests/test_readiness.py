@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+
 from tests.conftest import demo_headers, demo_rescue_window
 
 
@@ -20,6 +21,7 @@ def test_donation_creation_and_plan_are_owned_by_donor(client: TestClient) -> No
         "dietaryTags": ["vegetarian"],
         "declaredAllergens": ["wheat", "dairy"],
         "allergenStatus": "DONOR_CONFIRMED",
+        "donorConfirmed": True,
         "preparedAt": now.isoformat().replace("+00:00", "Z"),
         "storageCondition": "refrigerated",
         "pickupAvailableAt": pickup.isoformat().replace("+00:00", "Z"),

@@ -20,6 +20,6 @@ class Receipt(TimestampModel):
 
 class ReceiptRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", alias_generator=to_camel, populate_by_name=True)
-    handoff_code: str = Field(min_length=6, max_length=20)
+    handoff_code: str = Field(pattern=r"^\d{6}$")
     quantity_received: int = Field(gt=0)
     exception_reason: str | None = None

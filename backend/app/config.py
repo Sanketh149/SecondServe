@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from pydantic import Field
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     offer_ttl_minutes: int = 5
     max_upload_bytes: int = 5 * 1024 * 1024
     firebase_project_id: str | None = None
-    demo_mode: bool = True
+    demo_mode: bool = False
     seed_data_path: str = "../data/demo"
     request_timeout_seconds: float = 30.0
 

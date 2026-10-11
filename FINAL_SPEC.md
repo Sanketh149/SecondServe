@@ -125,7 +125,9 @@ The following are not part of this submission: native apps, real-time driver tra
    - `UNKNOWN`: not supplied or not confidently inferred.
 4. The UI makes the donor confirm the primary item, category, quantity, unit, dietary tags, known allergens, preparation time, storage condition, pickup availability, and `usableUntil`.
 5. AI may suggest visible packaging and potential allergens, but neither is treated as verified until the donor confirms it.
-6. If image analysis fails, the donor can continue with manual entry. The UI must clearly say that analysis did not succeed; it must not show a success-shaped fallback.
+6. Gemini may return a **ballpark quantity suggestion** only when visible meal-sized portions provide a reasonable basis. It must use low confidence when uncertain, count only visible portions, and never infer servings from opaque packages, shelf capacity, weight, or volume. The donor must review and confirm or correct the quantity. If the image provides no reasonable visual basis, quantity remains `null`.
+7. Before leaving the Food Passport step after image analysis, the donor explicitly acknowledges reviewing the AI draft. This is an acknowledgement gate, not safety certification or confirmation of any field the donor has not reviewed.
+8. If image analysis fails, the donor can continue with manual entry. The UI must clearly say that analysis did not succeed; it must not show a success-shaped fallback.
 
 **Frontend owner:** Upload, progress/error states, field provenance, confidence indicators, correction/confirmation form, manual-entry path.  
 **Backend owner:** Image validation, Vertex AI call, response validation, prompt, field provenance, analysis persistence/expiry, rate and size limits.
@@ -322,9 +324,9 @@ Cloud Tasks invokes an internal, authenticated offer-expiration handler. It is n
       "confidence": 0.64
     },
     "quantitySuggestion": {
-      "value": null,
-      "source": "UNKNOWN",
-      "confidence": 0.0
+      "value": 24,
+      "source": "AI_SUGGESTED",
+      "confidence": 0.42
     }
   },
   "requiredDonorConfirmations": [
@@ -342,7 +344,7 @@ Cloud Tasks invokes an internal, authenticated offer-expiration handler. It is n
 }
 ```
 
-An absent or uncertain quantity is `null`, not an invented estimate.
+Quantity is a rough, donor-reviewable visual estimate only when visible portions support one; otherwise it is `null`. It never establishes a verified count.
 
 ### Donation creation request
 

@@ -1,14 +1,17 @@
 from fastapi import APIRouter, Depends
+
 from app.api.dependencies import require_role
+from app.models.offer import OfferStatus
 from app.models.user import CurrentUser
 from app.repositories.memory import get_repository
-from app.services.offer_service import OfferService
-from app.models.offer import OfferStatus
 from app.schemas.offer import (
     OfferDecisionRequest,
     OfferListResponse,
+)
+from app.schemas.offer import (
     OfferResponse as OfferSchema,
 )
+from app.services.offer_service import OfferService
 
 router = APIRouter(prefix="/recipients/me/offers")
 

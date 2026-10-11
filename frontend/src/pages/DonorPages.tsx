@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
+  LoaderCircle,
   MapPin,
   Plus,
   ShieldCheck,
@@ -16,7 +17,7 @@ import {
   Utensils,
 } from "lucide-react"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
-import { useState, type ChangeEvent } from "react"
+import { useEffect, useRef, useState, type ChangeEvent } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { AvatarStack, DemoTag, MetricCard, PageHeading, PrimaryLink, ReadinessNotice, RescueTimeline, RouteMeta, StatusBadge } from "@/components/AppShell"
 import { Badge } from "@/components/ui/badge"
@@ -304,7 +305,64 @@ export function DonorDashboardPage() {
 }
 
 function RecentActivity() {
-  const { donations } = useDemoStore()
+  const { apiMode, donations } = useDemoStore()
+  if (apiMode) {
+    const activities = donations
+      .flatMap((donation) =>
+        (donation.events ?? []).map((event) => ({
+          id: `${donation.id}-${event.type}-${event.occurredAt}`,
+          title: activityTitle(event.type),
+          detail: `${donation.itemName} · ${event.detail}`,
+          occurredAt: event.occurredAt,
+          time: new Date(event.occurredAt).toLocaleString([], {
+            month: "short",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+          }),
+          kind: event.type === "RECEIPT_CONFIRMED" ? "received" : "plan",
+        })),
+      )
+      .sort(
+        (left, right) =>
+          Date.parse(right.occurredAt) - Date.parse(left.occurredAt),
+      )
+      .slice(0, 3)
+
+    return (
+      <Card className="panel activity-panel">
+        <div className="panel-heading">
+          <h2>Recent activity</h2>
+          <Link className="panel-link" to="/donor/donations">
+            See history <ArrowRight aria-hidden="true" size={14} />
+          </Link>
+        </div>
+        <div className="activity-list">
+          {activities.length > 0 ? (
+            activities.map((activity) => (
+              <div className="activity-row" key={activity.id}>
+                <span className={`activity-icon activity-icon--${activity.kind}`}>
+                  {activity.kind === "received" ? (
+                    <Check aria-hidden="true" size={16} />
+                  ) : (
+                    <ArrowUpRight aria-hidden="true" size={16} />
+                  )}
+                </span>
+                <span className="activity-copy">
+                  <strong>{activity.title}</strong>
+                  <span>{activity.detail}</span>
+                </span>
+                <span className="activity-time">{activity.time}</span>
+              </div>
+            ))
+          ) : (
+            <p className="panel-empty-note">Backend events will appear here after a donation is created.</p>
+          )}
+        </div>
+      </Card>
+    )
+  }
+
   const generated = donations
     .filter((donation) => donation.createdAt === "Just now")
     .slice(0, 1)
@@ -345,6 +403,20 @@ function RecentActivity() {
       </div>
     </Card>
   )
+}
+
+function activityTitle(eventType: string): string {
+  const titles: Record<string, string> = {
+    DONATION_CREATED: "Donation created",
+    RESCUE_PLAN_CREATED: "Readiness checked",
+    OFFER_STARTED: "Rescue offer sent",
+    OFFER_RELAYED: "Offer relayed",
+    OFFER_ACCEPTED: "Offer accepted",
+    OFFER_DECLINED: "Offer declined",
+    OFFER_EXPIRED: "Offer expired",
+    RECEIPT_CONFIRMED: "Receipt confirmed",
+  }
+  return titles[eventType] ?? eventType.toLowerCase().replaceAll("_", " ")
 }
 
 function ImpactPreview({
@@ -409,7 +481,7 @@ function DonationRow({ donation }: { donation: DemoDonation }) {
 }
 
 export function DonationsPage() {
-  const { donations } = useDemoStore()
+  const { apiMode, donations } = useDemoStore()
   const [query, setQuery] = useState("")
   const filtered = donations.filter((donation) =>
     donation.itemName.toLowerCase().includes(query.trim().toLowerCase()),
@@ -436,7 +508,7 @@ export function DonationsPage() {
           />
         </label>
         <span className="toolbar-meta">
-          {filtered.length} donation{filtered.length === 1 ? "" : "s"} · demo records
+          {filtered.length} donation{filtered.length === 1 ? "" : "s"} · {apiMode ? "backend records" : "demo records"}
         </span>
       </div>
       <Card className="panel donation-list">
@@ -452,7 +524,9 @@ export function DonationsPage() {
         )}
       </Card>
       <p className="demo-disclaimer">
-        Offer and receipt events in this prototype are simulated in browser memory.
+        {apiMode
+          ? "These are records from the local in-memory API demo; they are not saved to a production database."
+          : "Offer and receipt events in this prototype are simulated in browser memory."}
       </p>
     </>
   )
@@ -464,7 +538,7 @@ export function DonorImpactPage() {
     ? getConnectedImpact(donations, impactSummary)
     : getImpactTotals(donations)
   const { confirmedMeals: confirmed } = impact
-  const [range, setRange] = useState("This month")
+  const [range, setRange] = useState(apiMode ? "All time" : "This month")
 
   return (
     <>
@@ -477,9 +551,15 @@ export function DonorImpactPage() {
               onChange={(event) => setRange(event.target.value)}
               value={range}
             >
-              <option>This month</option>
-              <option>Last 90 days</option>
-              <option>All time</option>
+              {apiMode ? (
+                <option>All time</option>
+              ) : (
+                <>
+                  <option>This month</option>
+                  <option>Last 90 days</option>
+                  <option>All time</option>
+                </>
+              )}
             </select>
           </label>
         }
@@ -568,6 +648,7 @@ type DonationDraft = {
   itemName: string
   category: string
   quantity: number
+  quantityWasSuggested: boolean
   dietaryTags: string[]
   potentialAllergens: string
   allergenStatus: "DONOR_CONFIRMED" | "UNKNOWN" | "NOT_APPLICABLE"
@@ -676,7 +757,7 @@ function categoryLabel(category: string): string {
     bakery: "Bakery",
     produce: "Produce",
     packaged_food: "Packaged food",
-    other: "Prepared meals",
+    other: "Other",
   }
   return labels[category] ?? category
 }
@@ -707,14 +788,23 @@ export function NewDonationPage() {
   const [analysisResult, setAnalysisResult] = useState<ApiFoodAnalysis | null>(null)
   const [analysisLoading, setAnalysisLoading] = useState(false)
   const [planPreview, setPlanPreview] = useState<ApiRescuePlan | null>(null)
+  const [planPreviewLoading, setPlanPreviewLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [passportReviewOpen, setPassportReviewOpen] = useState(false)
+  const [passportReviewChecked, setPassportReviewChecked] = useState(false)
+  const [passportReviewApproved, setPassportReviewApproved] = useState(false)
   const [fileMessage, setFileMessage] = useState("")
+  const quantityInputRef = useRef<HTMLInputElement>(null)
+  const foodNameInputRef = useRef<HTMLInputElement>(null)
+  const continueButtonRef = useRef<HTMLButtonElement>(null)
+  const passportDialogRef = useRef<HTMLElement>(null)
   const [draft, setDraft] = useState<DonationDraft>(() => {
     const pickupWindow = nextDemoPickupWindow()
     return {
       itemName: "",
       category: "Prepared meals",
-      quantity: 32,
+      quantity: apiMode ? 0 : 32,
+      quantityWasSuggested: false,
       dietaryTags: [],
       potentialAllergens: "",
       allergenStatus: "UNKNOWN",
@@ -732,6 +822,18 @@ export function NewDonationPage() {
   ])
   const [allocationQuantities, setAllocationQuantities] = useState([24, 8])
   const [error, setError] = useState("")
+  useEffect(() => {
+    if (!passportReviewOpen) return
+    passportDialogRef.current?.focus()
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setPassportReviewOpen(false)
+        requestAnimationFrame(() => continueButtonRef.current?.focus())
+      }
+    }
+    window.addEventListener("keydown", handleEscape)
+    return () => window.removeEventListener("keydown", handleEscape)
+  }, [passportReviewOpen])
   const allocations = selectedRecipients.map((id, index) => ({
     recipient: recipientCandidates.find((candidate) => candidate.id === id)!,
     quantity: allocationQuantities[index] ?? 0,
@@ -767,9 +869,25 @@ export function NewDonationPage() {
     value: DonationDraft[Key],
   ) {
     setDraft((current) => ({ ...current, [key]: value }))
+    if (
+      analysisResult &&
+      [
+        "itemName",
+        "category",
+        "dietaryTags",
+        "potentialAllergens",
+        "allergenStatus",
+      ].includes(key)
+    ) {
+      setPassportReviewApproved(false)
+    }
+    if (analysisResult && key === "quantity" && draft.quantityWasSuggested) {
+      setPassportReviewApproved(false)
+    }
   }
 
   function toggleDietaryTag(tag: string) {
+    if (analysisResult) setPassportReviewApproved(false)
     setDraft((current) => ({
       ...current,
       dietaryTags: current.dietaryTags.includes(tag)
@@ -785,9 +903,16 @@ export function NewDonationPage() {
       setFileMessage("Choose a JPEG, PNG, or WEBP image.")
       return
     }
-    updateDraft("imageName", file.name)
+    setDraft((current) => ({
+      ...current,
+      imageName: file.name,
+      analysisId: undefined,
+      quantity: current.quantityWasSuggested ? 0 : current.quantity,
+      quantityWasSuggested: false,
+    }))
     setAnalysisApplied(false)
     setAnalysisResult(null)
+    setPassportReviewApproved(false)
     setPlanPreview(null)
     if (!apiMode) {
       setFileMessage(
@@ -801,6 +926,13 @@ export function NewDonationPage() {
       .then((result) => {
         setAnalysisResult(result)
         setAnalysisApplied(true)
+        const quantitySuggestion = result.candidate.quantitySuggestion?.value
+        const suggestedQuantity =
+          typeof quantitySuggestion === "number" &&
+          Number.isInteger(quantitySuggestion) &&
+          quantitySuggestion > 0
+            ? quantitySuggestion
+            : null
         setDraft((current) => ({
           ...current,
           analysisId: result.analysisId,
@@ -818,10 +950,12 @@ export function NewDonationPage() {
           potentialAllergens: stringList(
             result.candidate.potentialAllergens?.value,
           ).join(", "),
+          quantity: suggestedQuantity ?? current.quantity,
+          quantityWasSuggested: suggestedQuantity !== null,
           allergenStatus: "UNKNOWN",
           donorConfirmed: false,
         }))
-        setFileMessage("Gemini suggestions received. Review and confirm every field; the analysis does not determine food safety.")
+        setFileMessage("")
       })
       .catch((error: unknown) => {
         const message =
@@ -832,11 +966,13 @@ export function NewDonationPage() {
   }
 
   function useSampleSuggestion() {
+    setPassportReviewApproved(false)
     setDraft((current) => ({
       ...current,
       itemName: "Vegetarian pasta meals",
       category: "Prepared meals",
       dietaryTags: ["Vegetarian"],
+      quantityWasSuggested: false,
       donorConfirmed: false,
     }))
     setAnalysisApplied(true)
@@ -899,8 +1035,18 @@ export function NewDonationPage() {
         setError("Wait for image analysis to finish, or continue with manual entry.")
         return false
       }
-      if (!draft.itemName.trim() || !draft.category || draft.quantity < 1) {
-        setError("Enter the food name, category, and a positive quantity.")
+      if (!draft.itemName.trim()) {
+        setError("Enter a food name before continuing.")
+        foodNameInputRef.current?.focus()
+        return false
+      }
+      if (draft.quantity < 1) {
+        setError("Enter the actual quantity to donate. The photo cannot determine the count.")
+        quantityInputRef.current?.focus()
+        return false
+      }
+      if (draft.category === "Other" && !apiMode) {
+        setError("Choose one homogeneous food lot and a supported category before continuing.")
         return false
       }
       setError("")
@@ -951,17 +1097,36 @@ export function NewDonationPage() {
   }
 
   async function goNext() {
+    if (step === 0 && analysisResult && !passportReviewApproved) {
+      setPassportReviewChecked(false)
+      setPassportReviewOpen(true)
+      return
+    }
     if (!validateStep()) return
     if (step === 1 && apiMode) {
+      setPlanPreviewLoading(true)
       try {
         const preview = await previewPlan(donationInput())
         setPlanPreview(preview)
         if (preview.status === "NONE" || preview.status === "UNKNOWN") {
-          setError(
-            preview.status === "UNKNOWN"
-              ? "The backend could not verify a reliable route. No offer can be started."
-              : "The backend found no eligible recipient for this donation.",
+          const blockedReasons = new Set(
+            preview.notReadyCandidates.flatMap(
+              (candidate) => candidate.reasonCodes,
+            ),
           )
+          if (preview.status === "UNKNOWN") {
+            setError("The backend could not verify a reliable route. No offer can be started.")
+          } else if (
+            draft.category === "Other" ||
+            (blockedReasons.size > 0 &&
+              [...blockedReasons].every((reason) => reason === "CATEGORY_NOT_ACCEPTED"))
+          ) {
+            setError(
+              "No current recipient accepts “Other.” Go back, choose one homogeneous food lot, and select Prepared meals, Bakery, Produce, or Packaged food.",
+            )
+          } else {
+            setError("The backend found no eligible recipient. Review the donor-entered cutoff, allergen details, and recipient readiness.")
+          }
           return
         }
       } catch (previewError) {
@@ -971,10 +1136,27 @@ export function NewDonationPage() {
             : "Could not calculate a backend rescue plan.",
         )
         return
+      } finally {
+        setPlanPreviewLoading(false)
       }
     }
     setError("")
     setStep((current) => Math.min(2, current + 1))
+  }
+
+  function closePassportReview() {
+    setPassportReviewOpen(false)
+    requestAnimationFrame(() => continueButtonRef.current?.focus())
+  }
+
+  function approvePassportAndContinue() {
+    if (!passportReviewChecked) return
+    setPassportReviewApproved(true)
+    setPassportReviewOpen(false)
+    setError("")
+    requestAnimationFrame(() => {
+      if (validateStep()) setStep(1)
+    })
   }
 
   async function startRescue() {
@@ -1039,24 +1221,83 @@ export function NewDonationPage() {
                 <span className="wizard-heading-icon"><Sparkles aria-hidden="true" size={19} /></span>
               </div>
 
-              <label className="upload-zone">
+              <label
+                aria-busy={analysisLoading}
+                className={`upload-zone${analysisLoading ? " upload-zone--loading" : ""}`}
+              >
                 <input
                   accept="image/png,image/jpeg,image/webp"
                   onChange={choosePhoto}
+                  disabled={analysisLoading}
                   type="file"
                 />
                 <span className="upload-icon"><Camera aria-hidden="true" size={20} /></span>
                 <strong>{draft.imageName || "Add a food photo"}</strong>
-                <span>JPG, PNG, or WEBP · photo optional</span>
-                <span className="upload-action">Choose image</span>
+                {analysisResult ? (
+                  <span className="upload-status-pill">
+                    <CheckCircle2 aria-hidden="true" size={13} />
+                    Gemini draft ready · review fields below
+                  </span>
+                ) : (
+                  <span className="upload-file-hint">JPG, PNG, or WEBP · photo optional</span>
+                )}
+                <span className="upload-action">
+                  {analysisLoading ? "Analyzing photo…" : "Choose image"}
+                </span>
               </label>
-              {fileMessage && (
+              {analysisLoading ? (
+                <motion.div
+                  animate={{ opacity: 1, y: 0 }}
+                  aria-live="polite"
+                  className="analysis-loading-panel"
+                  initial={{ opacity: 0, y: reducedMotion ? 0 : 5 }}
+                  role="status"
+                  transition={transition}
+                >
+                  <div className="analysis-loading-heading">
+                    <span className="analysis-loading-icon">
+                      <motion.span
+                        animate={reducedMotion ? undefined : { rotate: 360 }}
+                        transition={
+                          reducedMotion
+                            ? undefined
+                            : { duration: 1.25, ease: "linear", repeat: Infinity }
+                        }
+                      >
+                        <LoaderCircle aria-hidden="true" size={19} />
+                      </motion.span>
+                    </span>
+                    <span>
+                      <strong>Building your Food Passport</strong>
+                      <span>Gemini is identifying visible food details for you to review.</span>
+                    </span>
+                  </div>
+                  <div
+                    aria-label="Image analysis in progress"
+                    className="analysis-loading-track"
+                    role="progressbar"
+                  >
+                    <span />
+                  </div>
+                  <div aria-hidden="true" className="analysis-loading-skeleton">
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                  <p>
+                    This may take a few seconds. Quantity, preparation time, storage,
+                    and food safety always come from you—not the image analysis.
+                  </p>
+                </motion.div>
+              ) : fileMessage && !analysisResult ? (
                 <ReadinessNotice
-                  variant={analysisApplied && !analysisResult ? "warning" : "info"}
+                  variant={
+                    analysisApplied ? "warning" : "info"
+                  }
                 >
                   {fileMessage}
                 </ReadinessNotice>
-              )}
+              ) : null}
               {!apiMode && (
                 <div className="sample-analysis-row">
                   <span>
@@ -1085,6 +1326,7 @@ export function NewDonationPage() {
                   {[
                     ["name", "Food name"],
                     ["category", "Category"],
+                    ["quantitySuggestion", "Quantity"],
                     ["dietaryTags", "Dietary tags"],
                     ["potentialAllergens", "Potential allergens"],
                     ["visiblePackaging", "Visible packaging"],
@@ -1094,7 +1336,12 @@ export function NewDonationPage() {
                       <span key={key}>
                         <strong>{label}</strong>
                         <small>
-                          {field?.source === "AI_SUGGESTED"
+                          {key === "quantitySuggestion" && draft.quantity > 0
+                            ? draft.quantityWasSuggested &&
+                              field?.source === "AI_SUGGESTED"
+                              ? `Gemini ballpark · ${Math.round(field.confidence * 100)}% confidence · verify`
+                              : "Donor-entered · confirm"
+                            : field?.source === "AI_SUGGESTED"
                             ? `Gemini suggestion · ${Math.round(field.confidence * 100)}% confidence · confirm`
                             : "Unknown · confirm manually"}
                         </small>
@@ -1102,6 +1349,18 @@ export function NewDonationPage() {
                     )
                   })}
                 </div>
+              )}
+              {analysisResult?.candidate.category?.value === "other" && (
+                <ReadinessNotice variant="warning">
+                  <AlertTriangle aria-hidden="true" size={18} />
+                  <span>
+                    <strong>This photo appears to show several kinds of food.</strong>
+                    <span>
+                      The rescue flow accepts one homogeneous lot at a time. Choose one item,
+                      edit its name and category, and create separate donations for other lots.
+                    </span>
+                  </span>
+                </ReadinessNotice>
               )}
 
               <div className="form-grid">
@@ -1113,6 +1372,7 @@ export function NewDonationPage() {
                     </span>
                   )}
                   <Input
+                    ref={foodNameInputRef}
                     onChange={(event) => updateDraft("itemName", event.target.value)}
                     placeholder="e.g. Vegetarian pasta meals"
                     value={draft.itemName}
@@ -1129,19 +1389,31 @@ export function NewDonationPage() {
                     <option>Bakery</option>
                     <option>Produce</option>
                     <option>Packaged food</option>
+                    <option>Other</option>
                   </select>
                 </label>
                 <label className="field-label">
                   Quantity
+                  {apiMode && (
+                    <span className="field-hint">
+                      {draft.quantityWasSuggested
+                        ? `Gemini ballpark · ${Math.round((analysisResult?.candidate.quantitySuggestion?.confidence ?? 0) * 100)}% confidence. Verify and correct the actual count.`
+                        : analysisResult
+                          ? "Gemini could not estimate countable portions in this photo. Enter the actual count."
+                          : "Required · enter the actual count; a photo cannot determine quantity."}
+                    </span>
+                  )}
                   <span className="quantity-input-wrap">
                     <Input
+                      ref={quantityInputRef}
+                      aria-invalid={Boolean(error && draft.quantity < 1)}
                       min={1}
                       onChange={(event) => {
-                        const quantity = Math.max(
-                          1,
-                          Math.floor(Number(event.target.value) || 1),
-                        )
+                        const quantity = event.target.value
+                          ? Math.max(1, Math.floor(Number(event.target.value) || 1))
+                          : 0
                         updateDraft("quantity", quantity)
+                        updateDraft("quantityWasSuggested", false)
                         const nextRecipients =
                           quantity < selectedRecipients.length
                             ? selectedRecipients.slice(0, quantity)
@@ -1151,8 +1423,9 @@ export function NewDonationPage() {
                         }
                         setAllocationQuantities(splitQuantity(quantity, nextRecipients.length))
                       }}
+                      placeholder="Enter actual count"
                       type="number"
-                      value={draft.quantity}
+                      value={draft.quantity || ""}
                     />
                     <span>meals</span>
                   </span>
@@ -1201,13 +1474,7 @@ export function NewDonationPage() {
                   </select>
                 </label>
               </div>
-              <ReadinessNotice variant="warning">
-                <AlertTriangle aria-hidden="true" size={18} />
-                <span>
-                  <strong>Image analysis does not determine food safety.</strong>
-                  <span>Confirm ingredients, allergens, preparation time, and storage yourself.</span>
-                </span>
-              </ReadinessNotice>
+              {error && <p className="form-error" role="alert">{error}</p>}
             </Card>
             </motion.div>
           )}
@@ -1607,6 +1874,7 @@ export function NewDonationPage() {
               disabled={step === 0}
               onClick={() => {
                 setError("")
+                if (step === 1) setPassportReviewApproved(false)
                 setStep((current) => Math.max(0, current - 1))
               }}
               type="button"
@@ -1615,8 +1883,13 @@ export function NewDonationPage() {
               <ChevronLeft aria-hidden="true" size={17} /> Back
             </Button>
             {step < 2 ? (
-              <Button disabled={analysisLoading} onClick={() => void goNext()} type="button">
-                Continue <ChevronRight aria-hidden="true" size={17} />
+              <Button
+                disabled={analysisLoading || planPreviewLoading}
+                onClick={() => void goNext()}
+                type="button"
+              >
+                {planPreviewLoading ? "Checking feasibility…" : "Continue"}
+                {!planPreviewLoading && <ChevronRight aria-hidden="true" size={17} />}
               </Button>
             ) : (
               <Button disabled={submitting} onClick={() => void startRescue()} type="button">
@@ -1643,6 +1916,122 @@ export function NewDonationPage() {
           </div>
         </aside>
       </div>
+      <AnimatePresence>
+        {passportReviewOpen && analysisResult && (
+          <motion.div
+            animate={{ opacity: 1 }}
+            className="passport-review-backdrop"
+            exit={{ opacity: 0 }}
+            initial={{ opacity: 0 }}
+          >
+            <motion.section
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              aria-labelledby="passport-review-title"
+              aria-modal="true"
+              className="passport-review-dialog"
+              exit={{ opacity: 0, y: reducedMotion ? 0 : 8, scale: 0.98 }}
+              initial={{ opacity: 0, y: reducedMotion ? 0 : 8, scale: 0.98 }}
+              ref={passportDialogRef}
+              role="dialog"
+              tabIndex={-1}
+              transition={transition}
+            >
+              <div className="passport-review-icon">
+                <ShieldCheck aria-hidden="true" size={20} />
+              </div>
+              <span className="step-kicker">DONOR REVIEW REQUIRED</span>
+              <h2 id="passport-review-title">Review the Gemini draft</h2>
+              <p>
+                These are visual suggestions, not verified facts. Correct anything
+                that does not match the food you intend to donate.
+              </p>
+              <div className="passport-review-summary">
+                <div>
+                  <small>Food name</small>
+                  <strong>{draft.itemName || "Not entered"}</strong>
+                </div>
+                <div>
+                  <small>Category</small>
+                  <strong>{draft.category || "Not selected"}</strong>
+                </div>
+                <div>
+                  <small>Quantity</small>
+                  <strong>
+                    {draft.quantityWasSuggested
+                      ? `${draft.quantity} meals · Gemini ballpark · verify`
+                      : draft.quantity > 0
+                        ? `${draft.quantity} meals · donor-entered`
+                        : "No estimate · enter actual count"}
+                  </strong>
+                </div>
+                <div>
+                  <small>Dietary tags / allergens</small>
+                  <strong>
+                    {draft.dietaryTags.length || draft.potentialAllergens.trim()
+                      ? "Review the fields on the form"
+                      : "Unknown until you confirm labels"}
+                  </strong>
+                </div>
+              </div>
+              {draft.category === "Other" && (
+                <ReadinessNotice variant="warning">
+                  <AlertTriangle aria-hidden="true" size={18} />
+                  <span>
+                    <strong>This image appears to contain multiple food lots.</strong>
+                    <span>
+                      Choose one homogeneous lot and correct its name and category
+                      before starting an offer. You can create separate donations
+                      for the other items.
+                    </span>
+                  </span>
+                </ReadinessNotice>
+              )}
+              <ReadinessNotice variant="warning">
+                <AlertTriangle aria-hidden="true" size={18} />
+                <span>
+                  <strong>Gemini cannot verify food safety.</strong>
+                  <span>
+                    Quantity, ingredients/allergens, preparation, storage, and
+                    usable-until cutoff remain your responsibility. An empty
+                    allergen suggestion does not mean allergen-free.
+                  </span>
+                </span>
+              </ReadinessNotice>
+              <label className="confirmation-control passport-review-confirmation">
+                <input
+                  autoFocus
+                  checked={passportReviewChecked}
+                  onChange={(event) => setPassportReviewChecked(event.target.checked)}
+                  type="checkbox"
+                />
+                <span>
+                  I reviewed the suggestions, corrected any inaccurate fields,
+                  and will verify or enter the actual quantity and confirm all
+                  donor-entered safety details.
+                </span>
+              </label>
+              <div className="passport-review-actions">
+                <Button
+                  onClick={closePassportReview}
+                  type="button"
+                  variant="outline"
+                >
+                  Back to fields
+                </Button>
+                <Button
+                  disabled={!passportReviewChecked}
+                  onClick={() => {
+                    approvePassportAndContinue()
+                  }}
+                  type="button"
+                >
+                  Approve and continue <ArrowRight aria-hidden="true" size={16} />
+                </Button>
+              </div>
+            </motion.section>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   )
 }
@@ -1735,7 +2124,7 @@ export function TrackDonationPage() {
           <Card className="panel tracking-panel">
             <div className="panel-heading">
               <h2>Rescue timeline</h2>
-              <Badge variant="neutral">SAMPLE DATA</Badge>
+              <Badge variant="neutral">{apiMode ? "BACKEND DEMO" : "SAMPLE DATA"}</Badge>
             </div>
             <div className="tracking-panel-content">
               <RescueTimeline status={donation.status} />

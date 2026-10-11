@@ -5,11 +5,14 @@ import logging
 from datetime import timedelta
 from typing import Any
 
+from pydantic import ValidationError
+
 from app.api import errors
 from app.config import get_settings
 from app.models.analysis import FoodAnalysis
 from app.models.common import FieldValue, Source, utc_now
 from app.repositories.memory import InMemoryRepository
+from app.schemas.gemini import GeminiFoodPassportOutput
 from app.utils.ids import new_id
 
 logger = logging.getLogger(__name__)
@@ -19,14 +22,55 @@ SAFETY_NOTICE = (
 RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "OBJECT",
     "properties": {
-        "name": {"type": "STRING", "nullable": True},
+        "name": {"type": "STRING"},
         "category": {
             "type": "STRING",
             "enum": ["prepared_meal", "bakery", "produce", "packaged_food", "other"],
         },
-        "visiblePackaging": {"type": "STRING", "nullable": True},
-        "dietaryTags": {"type": "ARRAY", "items": {"type": "STRING"}},
-        "potentialAllergens": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "visiblePackaging": {
+            "type": "STRING",
+            "enum": [
+                "not_visible",
+                "clear_plastic_container",
+                "vacuum_sealed_bag",
+                "aluminum_can",
+                "glass_jar",
+                "paper_bag",
+                "cardboard_box",
+                "plastic_wrap",
+                "original_packaging",
+                "mixed_packaging",
+                "other",
+            ],
+        },
+        "dietaryTags": {
+            "type": "ARRAY",
+            "items": {
+                "type": "STRING",
+                "enum": ["vegetarian", "vegan", "halal", "gluten-free"],
+            },
+        },
+        "potentialAllergens": {
+            "type": "ARRAY",
+            "items": {
+                "type": "STRING",
+                "enum": [
+                    "milk",
+                    "eggs",
+                    "fish",
+                    "shellfish",
+                    "tree nuts",
+                    "peanuts",
+                    "wheat",
+                    "soy",
+                    "sesame",
+                ],
+            },
+        },
+        "quantitySuggestion": {
+            "type": "INTEGER",
+            "nullable": True,
+        },
         "confidence": {
             "type": "OBJECT",
             "properties": {
@@ -35,6 +79,7 @@ RESPONSE_SCHEMA: dict[str, Any] = {
                 "visiblePackaging": {"type": "NUMBER"},
                 "dietaryTags": {"type": "NUMBER"},
                 "potentialAllergens": {"type": "NUMBER"},
+                "quantitySuggestion": {"type": "NUMBER"},
             },
             "required": [
                 "name",
@@ -42,6 +87,7 @@ RESPONSE_SCHEMA: dict[str, Any] = {
                 "visiblePackaging",
                 "dietaryTags",
                 "potentialAllergens",
+                "quantitySuggestion",
             ],
         },
     },
@@ -51,6 +97,7 @@ RESPONSE_SCHEMA: dict[str, Any] = {
         "visiblePackaging",
         "dietaryTags",
         "potentialAllergens",
+        "quantitySuggestion",
         "confidence",
     ],
 }
@@ -104,6 +151,13 @@ class GeminiService:
             candidate = self._to_field_values(candidate_data)
         except errors.SecondServeError:
             raise
+        except ValidationError as exc:
+            logger.exception("Gemini output failed Food Passport schema validation")
+            raise errors.SecondServeError(
+                502,
+                "AI_INVALID_RESPONSE",
+                "Image analysis returned unsupported values. Continue with manual entry.",
+            ) from exc
         except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
             logger.exception("Gemini returned an invalid Food Passport response")
             raise errors.SecondServeError(
@@ -163,19 +217,40 @@ class GeminiService:
             ) from exc
 
         prompt = (
-            "Inspect this food image and suggest only visually observable details. "
-            "Do not infer food safety, preparation time, storage, quantity, expiry, "
-            "or legal eligibility. Return a short food name when recognizable, one "
-            "category from the allowed values, visible packaging when recognizable, "
-            "and dietary tags or potential allergens only when visually supported. "
-            "A food image cannot confirm ingredients or allergens. Use empty arrays "
-            "when there is no visual evidence. Include a separate confidence from 0 "
-            "to 1 for each suggested field."
+            "Create a donor-editable visual draft. First decide whether the image "
+            "shows one homogeneous food lot or multiple distinct products. If it "
+            "shows a refrigerator, shelf, tray, or scene with several food types, "
+            "do not select only one visible item. Return a neutral name such as "
+            "'Mixed assortment of refrigerated food items' and category 'other'. "
+            "Use prepared_meal, bakery, produce, or packaged_food only when one "
+            "distinct homogeneous lot is clearly the subject. Always return a "
+            "useful, non-empty name and a category from the supplied enum; never "
+            "return 'unknown', 'n/a', null, or an invented category. Choose visible "
+            "packaging only from the supplied enum, using not_visible if none can "
+            "be identified. Only suggest a dietary tag when explicit readable "
+            "package text supports it. Only suggest a potential allergen when "
+            "specific allergen text is clearly readable on packaging; otherwise "
+            "return an empty list and confidence 0, never implying allergen-free. "
+            "Give a ballpark quantity suggestion whenever visible evidence provides "
+            "a reasonable basis, even if the estimate is uncertain. Estimate the "
+            "number of meal-sized portions visible; for mixed scenes, use a "
+            "conservative approximate total of visibly countable portions and assign "
+            "low confidence. Do not claim precision, count hidden contents, or "
+            "derive servings from opaque packages, shelf capacity, weight, or volume. "
+            "Return null only when the image gives no reasonable visual basis for "
+            "any portion estimate, with confidence 0. The donor must review and "
+            "correct every estimate before using it. Never infer ingredients, "
+            "preparation time, storage, safety, expiry, edibility, or legal "
+            "eligibility. Return confidence from 0 to 1 for every field; confidence "
+            "for an empty list must be 0."
         )
         client = genai.Client(
             vertexai=True,
             project=project_id,
             location=self.settings.vertex_ai_location,
+            http_options=types.HttpOptions(
+                timeout=int(self.settings.request_timeout_seconds * 1000),
+            ),
         )
         response = client.models.generate_content(
             model=self.settings.gemini_model,
@@ -191,13 +266,17 @@ class GeminiService:
         )
         if not response.text:
             raise ValueError("Gemini returned an empty response")
-        return json.loads(response.text)
+        parsed = GeminiFoodPassportOutput.model_validate_json(response.text)
+        return parsed.model_dump(by_alias=True)
 
     def _to_field_values(self, response: dict[str, Any]) -> dict[str, FieldValue]:
+        response = GeminiFoodPassportOutput.model_validate(response).model_dump(
+            by_alias=True,
+        )
         fields = {
-            "name": str | type(None),
+            "name": str,
             "category": str,
-            "visiblePackaging": str | type(None),
+            "visiblePackaging": str,
             "dietaryTags": list,
             "potentialAllergens": list,
         }
@@ -215,15 +294,29 @@ class GeminiService:
             score = float(confidence[name])
             if not 0 <= score <= 1:
                 raise ValueError(f"Invalid Gemini confidence for {name}")
-            source = Source.AI_SUGGESTED if value not in (None, []) else Source.UNKNOWN
+            has_value = value not in (None, "", [])
+            source = (
+                Source.AI_SUGGESTED
+                if has_value and score > 0
+                else Source.UNKNOWN
+            )
             values[name] = FieldValue(
                 value=value,
                 source=source,
                 confidence=score if source == Source.AI_SUGGESTED else 0.0,
             )
+        quantity_suggestion = response["quantitySuggestion"]
+        quantity_confidence = float(confidence["quantitySuggestion"])
+        quantity_source = (
+            Source.AI_SUGGESTED
+            if quantity_suggestion is not None
+            else Source.UNKNOWN
+        )
         values["quantitySuggestion"] = FieldValue(
-            value=None,
-            source=Source.UNKNOWN,
-            confidence=0.0,
+            value=quantity_suggestion,
+            source=quantity_source,
+            confidence=(
+                quantity_confidence if quantity_source == Source.AI_SUGGESTED else 0.0
+            ),
         )
         return values

@@ -57,6 +57,30 @@ function useRecipientAccount() {
   }
 }
 
+function categoryLabel(category: string): string {
+  const labels: Record<string, string> = {
+    prepared_meal: "Prepared meals",
+    bakery: "Bakery",
+    produce: "Produce",
+    packaged_food: "Packaged food",
+  }
+  return labels[category] ?? category
+}
+
+function formatRecipientHours(
+  hours: Record<string, Array<[string, string]>>,
+  timeZone: string,
+): string {
+  const entry = Object.entries(hours).find(([, ranges]) => ranges.length > 0)
+  if (!entry) return "No open hours listed"
+  const [day, ranges] = entry
+  const [hour, minute] = ranges[0][1].split(":").map(Number)
+  const period = hour >= 12 ? "PM" : "AM"
+  const displayHour = hour % 12 || 12
+  const dayLabel = day.slice(0, 3).replace(/^./, (letter) => letter.toUpperCase())
+  return `${dayLabel} until ${displayHour}:${String(minute).padStart(2, "0")} ${period} (${timeZone})`
+}
+
 function RecipientOfferCard({ donation }: { donation: DemoDonation }) {
   const account = useRecipientAccount()
   const navigate = useNavigate()
@@ -218,6 +242,16 @@ function RecipientOfferCard({ donation }: { donation: DemoDonation }) {
               <p>Enter the donor’s one-time code and the actual quantity you received.</p>
             </div>
           </div>
+          <ReadinessNotice variant="info">
+            <Info aria-hidden="true" size={17} />
+            <span>
+              <strong>Ask the donor for the code at pickup.</strong>
+              <span>
+                The donor finds it in Track donation → Current offer. It is shown
+                only on the donor side to protect the recipient-confirmed receipt.
+              </span>
+            </span>
+          </ReadinessNotice>
           <div className="handoff-fields">
             <label className="field-label">
               Donor handoff code
@@ -336,21 +370,61 @@ export function RecipientOffersPage() {
 
 export function RecipientCapacityPage() {
   const account = useRecipientAccount()
+  const { apiMode, recipientProfile } = useDemoStore()
   const candidate = recipientCandidates.find(
     (item) => item.id === account.candidateId,
   )!
+  if (apiMode && !recipientProfile) {
+    return (
+      <>
+        <PageHeading
+          description="Capacity and accepted food details from the configured backend."
+          title="Capacity & needs"
+        />
+        <ReadinessNotice variant="warning">
+          <Info aria-hidden="true" size={18} />
+          <span>
+            <strong>Recipient profile is unavailable.</strong>
+            <span>
+              Check the backend profile setup; sample profile values are not substituted in API mode.
+            </span>
+          </span>
+        </ReadinessNotice>
+      </>
+    )
+  }
+  const acceptedCategories = apiMode
+    ? (recipientProfile?.acceptedCategories ?? []).map(categoryLabel)
+    : ["Prepared meals", "Bakery", "Produce"]
+  const restrictions = apiMode
+    ? recipientProfile?.allergenRestrictions ?? []
+    : []
+  const hoursText = apiMode
+    ? formatRecipientHours(
+        recipientProfile?.hours ?? {},
+        recipientProfile?.timezone ?? "organization time",
+      )
+    : `Open today until ${candidate.openUntil}`
 
   return (
     <>
       <PageHeading
-        description="Sample profile used to explain how readiness decisions are made."
+        description={
+          apiMode
+            ? "Recipient capacity and needs reported by the configured backend."
+            : "Sample profile used to explain how readiness decisions are made."
+        }
         title="Capacity & needs"
       />
       <ReadinessNotice variant="warning">
         <Info aria-hidden="true" size={18} />
         <span>
-          <strong>Demo profile only</strong>
-          <span>These values are synthetic and are not editable or published to real donors.</span>
+          <strong>{apiMode ? "Backend demo profile" : "Demo profile only"}</strong>
+          <span>
+            {apiMode
+              ? "These values are served by the local in-memory API and are not saved to a production database."
+              : "These values are synthetic and are not editable or published to real donors."}
+          </span>
         </span>
       </ReadinessNotice>
       <div className="recipient-profile-grid">
@@ -358,24 +432,30 @@ export function RecipientCapacityPage() {
           <div className="recipient-profile-heading">
             <span className="candidate-avatar candidate-avatar--large">{account.initials}</span>
             <div>
-              <span className="side-card-kicker">SAMPLE RECIPIENT</span>
+              <span className="side-card-kicker">
+                {apiMode ? "BACKEND RECIPIENT" : "SAMPLE RECIPIENT"}
+              </span>
               <h2>{account.name}</h2>
-              <p>Community organization · Open today until {candidate.openUntil}</p>
+              <p>Community organization · {hoursText}</p>
             </div>
           </div>
           <div className="capacity-stat-grid">
-            <div><small>Meal capacity</small><strong>{candidate.capacity}</strong></div>
-            <div><small>Current unmet need</small><strong>{candidate.unmetNeed}</strong></div>
-            <div><small>Estimated distance</small><strong>{candidate.distance}</strong></div>
+            <div><small>Meal capacity</small><strong>{apiMode ? recipientProfile?.capacity : candidate.capacity}</strong></div>
+            <div><small>Current unmet need</small><strong>{apiMode ? recipientProfile?.unmetDemand : candidate.unmetNeed}</strong></div>
+            <div><small>Route distance</small><strong>{apiMode ? "Calculated per donation" : candidate.distance}</strong></div>
           </div>
           <div className="panel-subheading"><h3>Accepted food categories</h3></div>
           <div className="tag-options">
-            {["Prepared meals", "Bakery", "Produce"].map((tag) => (
+            {acceptedCategories.map((tag) => (
               <Badge key={tag} variant="success">{tag}</Badge>
             ))}
           </div>
           <div className="panel-subheading"><h3>Recipient restrictions</h3></div>
-          <p className="body-copy">No seeded dietary exclusions. Allergen compatibility is not assumed when donor information is unknown.</p>
+          <p className="body-copy">
+            {restrictions.length > 0
+              ? `Allergen exclusions: ${restrictions.join(", ")}.`
+              : "No seeded allergen exclusions. Unknown donor allergen information is not treated as compatible."}
+          </p>
         </Card>
         <Card className="panel readiness-explainer">
           <div className="aside-icon"><MapPin aria-hidden="true" size={18} /></div>
@@ -534,7 +614,7 @@ export function RecipientReceivedPage() {
 
 export function RecipientImpactPage() {
   const account = useRecipientAccount()
-  const { apiMode, donations, impactSummary } = useDemoStore()
+  const { apiMode, donations, impactSummary, recipientProfile } = useDemoStore()
   const confirmed = donations.reduce(
     (total, donation) =>
       total +
@@ -590,7 +670,9 @@ export function RecipientImpactPage() {
           icon={<MapPin aria-hidden="true" size={17} />}
           note="Based on this demo profile"
           title="Active unmet need"
-          value={`${recipientCandidates.find((item) => item.id === account.candidateId)?.unmetNeed ?? 0} meals`}
+          value={`${apiMode
+            ? recipientProfile?.unmetDemand ?? 0
+            : recipientCandidates.find((item) => item.id === account.candidateId)?.unmetNeed ?? 0} meals`}
         />
       </div>
       <Card className="panel impact-receipt-table">

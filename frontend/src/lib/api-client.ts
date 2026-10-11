@@ -150,6 +150,20 @@ export interface ApiImpactSummary {
   period: string
 }
 
+export interface ApiRecipientProfile {
+  recipientId: string
+  organizationId: string
+  organizationName: string
+  active: boolean
+  timezone: string
+  hours: Record<string, Array<[string, string]>>
+  capacity: number
+  unmetDemand: number
+  acceptedCategories: string[]
+  dietaryTags: string[]
+  allergenRestrictions: string[]
+}
+
 export interface DonationFormPayload {
   analysisId?: string
   itemName: string
@@ -159,6 +173,7 @@ export interface DonationFormPayload {
   dietaryTags: string[]
   declaredAllergens: string[]
   allergenStatus: string
+  donorConfirmed: boolean
   preparedAt: string
   storageCondition: string
   pickupAvailableAt: string
@@ -282,6 +297,7 @@ export function toDonationPayload(
     Bakery: "bakery",
     Produce: "produce",
     "Packaged food": "packaged_food",
+    Other: "other",
   }
   return {
     ...(input.analysisId ? { analysisId: input.analysisId } : {}),
@@ -290,8 +306,12 @@ export function toDonationPayload(
     quantity: input.quantity,
     unit: "meals",
     dietaryTags: input.dietaryTags,
-    declaredAllergens: input.declaredAllergens,
+    declaredAllergens:
+      input.allergenStatus === "DONOR_CONFIRMED"
+        ? input.declaredAllergens
+        : [],
     allergenStatus: input.allergenStatus,
+    donorConfirmed: input.donorConfirmed,
     preparedAt: toIso(input.preparedAt),
     storageCondition: input.storageCondition.toLowerCase(),
     pickupAvailableAt: toIso(input.pickupAvailableAt),
@@ -347,6 +367,10 @@ export async function loadDonation(donationId: string): Promise<DemoDonation> {
 
 export async function loadImpactSummary(): Promise<ApiImpactSummary> {
   return request<ApiImpactSummary>("/impact/summary")
+}
+
+export async function loadRecipientProfile(): Promise<ApiRecipientProfile> {
+  return request<ApiRecipientProfile>("/recipients/me/profile")
 }
 
 export async function createDonationAndStart(

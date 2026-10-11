@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends
-from app.api.dependencies import require_role
+
 from app.api import errors
+from app.api.dependencies import require_role
+from app.models.common import AllergenStatus, FieldValue, Source, utc_now
 from app.models.donation import CreateDonationRequest, Donation, DonationStatus
 from app.models.user import CurrentUser
 from app.repositories.memory import get_repository
@@ -12,15 +14,19 @@ from app.schemas.donation import (
 )
 from app.schemas.rescue_plan import RescuePlanPreviewRequest, RescuePlanResponse
 from app.services.plan_service import PlanService
+from app.services.route_service import RouteService
 from app.utils.ids import new_id
 from app.utils.time import as_utc
-from app.models.common import utc_now
-from app.services.route_service import RouteService
 
 router = APIRouter(prefix="/donations")
 
 
-def _validate_analysis(request: CreateDonationRequest, user: CurrentUser) -> None:
+def _validate_analysis(
+    request: CreateDonationRequest,
+    user: CurrentUser,
+    *,
+    confirm: bool = False,
+) -> None:
     if not request.analysis_id:
         return
     analysis = get_repository().get_analysis(request.analysis_id)
@@ -28,13 +34,94 @@ def _validate_analysis(request: CreateDonationRequest, user: CurrentUser) -> Non
         raise errors.SecondServeError(422, "ANALYSIS_NOT_FOUND", "The image analysis is not available to this donor.")
     if analysis.expires_at <= utc_now():
         raise errors.SecondServeError(422, "ANALYSIS_EXPIRED", "The image analysis has expired; analyze the image again.")
-    get_repository().update_analysis(request.analysis_id, confirmed=True)
+    if confirm:
+        donor_source = Source.DONOR_CONFIRMED
+        candidate = dict(analysis.candidate)
+        candidate.update(
+            {
+                "name": FieldValue(
+                    value=request.item_name,
+                    source=donor_source,
+                    confidence=1.0,
+                ),
+                "category": FieldValue(
+                    value=request.category,
+                    source=donor_source,
+                    confidence=1.0,
+                ),
+                "dietaryTags": FieldValue(
+                    value=request.dietary_tags,
+                    source=donor_source,
+                    confidence=1.0,
+                ),
+                "quantitySuggestion": FieldValue(
+                    value=request.quantity,
+                    source=donor_source,
+                    confidence=1.0,
+                ),
+                "unit": FieldValue(
+                    value=request.unit,
+                    source=donor_source,
+                    confidence=1.0,
+                ),
+                "allergenStatus": FieldValue(
+                    value=request.allergen_status.value,
+                    source=(
+                        Source.UNKNOWN
+                        if request.allergen_status == AllergenStatus.UNKNOWN
+                        else donor_source
+                    ),
+                    confidence=(
+                        0.0
+                        if request.allergen_status == AllergenStatus.UNKNOWN
+                        else 1.0
+                    ),
+                ),
+                "preparedAt": FieldValue(
+                    value=as_utc(request.prepared_at).isoformat(),
+                    source=donor_source,
+                    confidence=1.0,
+                ),
+                "storageCondition": FieldValue(
+                    value=request.storage_condition,
+                    source=donor_source,
+                    confidence=1.0,
+                ),
+                "pickupAvailableAt": FieldValue(
+                    value=as_utc(request.pickup_available_at).isoformat(),
+                    source=donor_source,
+                    confidence=1.0,
+                ),
+                "usableUntil": FieldValue(
+                    value=as_utc(request.usable_until).isoformat(),
+                    source=donor_source,
+                    confidence=1.0,
+                ),
+            }
+        )
+        if request.allergen_status != AllergenStatus.UNKNOWN:
+            candidate["potentialAllergens"] = FieldValue(
+                value=request.declared_allergens,
+                source=donor_source,
+                confidence=1.0,
+            )
+        get_repository().update_analysis(
+            request.analysis_id,
+            confirmed=True,
+            candidate=candidate,
+        )
 
 
 @router.post("", response_model=DonationResponse, status_code=201)
 def create_donation(request: CreateDonationRequest, user: CurrentUser = Depends(require_role("donor"))) -> Donation:
     repository = get_repository()
-    _validate_analysis(request, user)
+    if not request.donor_confirmed:
+        raise errors.SecondServeError(
+            422,
+            "DONOR_CONFIRMATION_REQUIRED",
+            "Confirm the food details and donor-entered safety fields before creating a donation.",
+        )
+    _validate_analysis(request, user, confirm=True)
     now = utc_now()
     donation = Donation(
         donation_id=new_id("dn"), donor_organization_id=user.organization_id,

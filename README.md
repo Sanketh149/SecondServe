@@ -7,9 +7,10 @@ handoffs count as rescued.
 
 > **Prototype status:** The repository now includes a FastAPI backend and an
 > optional frontend API mode. The local repository is still an in-memory demo
-> backend: Firestore, Cloud Storage, Cloud Tasks, deployed Firebase auth, and a
-> production service are not connected. Gemini and Google Routes call real
-> Google Cloud services only when their backend credentials/configuration exist.
+> backend: Firestore, Cloud Storage, deployed Firebase web auth, and a production
+> service are not connected. Cloud Tasks scheduling is implemented but only
+> activates when configured. Gemini and Google Routes call real Google Cloud
+> services only when their backend credentials/configuration exist.
 
 ## Product scope
 
@@ -109,11 +110,21 @@ tracking; in-memory backend demo records; Gemini via Vertex AI when configured;
 Google Routes when configured; and reduced-motion-aware UI transitions.
 
 **Still not production-integrated:** Firestore persistence, Cloud Storage image
-retention/deletion, Cloud Tasks-backed timeout expiry, deployed Firebase user
-profile provisioning/authorization, Google Cloud deployment, and a fully
-transactional offer/receipt state machine. The current backend repository is
-in-memory; data is lost on restart. Never present local demo data as real
-community impact.
+retention/deletion, deployed Firebase user profile provisioning/authorization,
+Google Cloud deployment, and a fully transactional offer/receipt state
+machine. Cloud Tasks expiry scheduling and its OIDC-protected handler are
+implemented but require deployment configuration and IAM setup. The current
+backend repository is in-memory; data is lost on restart. Never present local
+demo data as real community impact.
+
+| Spec area | Implemented in this checkout | Remaining before production |
+| --- | --- | --- |
+| Food Passport / Gemini | Frontend uploads to FastAPI; Vertex AI Gemini produces structured suggestions and field confidence when configured. Manual entry remains available on errors. | Configure project and ADC; persist analyses/images with Cloud Storage retention; add deployed image-analysis smoke test. |
+| Readiness / Split the Batch | Backend checks category, capacity, allergen restrictions, local opening hours, route estimate, cutoff, and at-most-two quantity allocation. Preview sends no offers. | Google Routes key for live estimates; persist plans and reservations in Firestore; add dietary compatibility policy where recipient profile semantics are finalized. |
+| Rescue Relay | Offers are sequential; declines and configured Cloud Tasks expiry advance to a ready fallback or queued allocation. | Deploy queue/service account and IAM; use Firestore transactions for concurrency and durable/idempotent state across instances. |
+| Receipt / impact | Backend validates a hashed one-time handoff code and positive received quantity; totals count only saved receipts. | Firestore persistence/transactions and deployed concurrency testing. |
+| Authentication | Backend verifies Firebase ID tokens when demo mode is off; local API mode uses explicit seeded demo identities. | Firebase web sign-in, real user/org profile provisioning and persistent role/ownership data. |
+| Hosting / storage | Local Vite and FastAPI setup documented. | Cloud Run deployment, Firestore, Cloud Storage lifecycle, secrets, monitoring, and production CORS configuration. |
 
 ## Team ownership
 

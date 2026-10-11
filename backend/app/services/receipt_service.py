@@ -1,15 +1,15 @@
 from hmac import compare_digest
 
 from app.api import errors
-from app.models.allocation import Allocation, AllocationStatus
-from app.models.donation import Donation, DonationStatus
+from app.models.allocation import AllocationStatus
+from app.models.common import utc_now
+from app.models.donation import DonationStatus
 from app.models.events import Event
 from app.models.receipt import Receipt, ReceiptRequest
 from app.repositories.memory import InMemoryRepository
 from app.services.offer_service import OfferService
 from app.utils.ids import new_id
 from app.utils.security import hash_handoff_code
-from app.models.common import utc_now
 
 
 class ReceiptService:

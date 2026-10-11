@@ -1,8 +1,8 @@
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
-from app.models.rescue_plan import RescuePlan
 from app.models.donation import CreateDonationRequest
+from app.models.rescue_plan import RescuePlan
 
 
 class RescuePlanResponse(RescuePlan):

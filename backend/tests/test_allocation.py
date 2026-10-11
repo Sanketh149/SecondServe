@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+
 from tests.conftest import demo_headers, demo_rescue_window
 
 
@@ -12,6 +13,7 @@ def test_split_allocation_conserves_quantity(client: TestClient) -> None:
         "dietaryTags": ["vegetarian"],
         "declaredAllergens": [],
         "allergenStatus": "NOT_APPLICABLE",
+        "donorConfirmed": True,
         "preparedAt": now.isoformat().replace("+00:00", "Z"),
         "storageCondition": "refrigerated",
         "pickupAvailableAt": pickup.isoformat().replace("+00:00", "Z"),

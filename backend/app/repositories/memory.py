@@ -1,21 +1,20 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime, timedelta, timezone
-from uuid import uuid4
 from typing import Any
+from uuid import uuid4
 
-from app.models.analysis import FoodAnalysis
 from app.models.allocation import Allocation
-from app.models.donation import Donation, DonationStatus
+from app.models.analysis import FoodAnalysis
+from app.models.common import Role, utc_now
+from app.models.donation import Donation
 from app.models.events import Event
-from app.models.offer import Offer, OfferStatus
+from app.models.offer import Offer
 from app.models.organization import Organization
 from app.models.receipt import Receipt
 from app.models.recipient import Recipient
 from app.models.rescue_plan import RescuePlan
 from app.models.user import UserProfile
-from app.models.common import Role, utc_now
 
 
 class InMemoryRepository:
@@ -36,12 +35,6 @@ class InMemoryRepository:
         if self.users:
             return
         now = utc_now()
-        organization_ids = {
-            "org-green-leaf": "org-green-leaf",
-            "org-hope-shelter": "org-hope-shelter",
-            "org-community-kitchen": "org-community-kitchen",
-            "org-neighborhood-pantry": "org-neighborhood-pantry",
-        }
         self.organizations.update({
             "org-green-leaf": Organization(organization_id="org-green-leaf", name="Green Leaf Kitchen", type="donor", location={"latitude": 40.7128, "longitude": -74.0060}, address="18 Market Street", created_at=now, updated_at=now),
             "org-hope-shelter": Organization(organization_id="org-hope-shelter", name="Hope Shelter", type="recipient", location={"latitude": 40.7140, "longitude": -74.0090}, address="42 Harbor Lane", created_at=now, updated_at=now),

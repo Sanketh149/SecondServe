@@ -20,11 +20,13 @@ import {
   loadDonorDonations,
   loadImpactSummary,
   loadRecipientDonations,
+  loadRecipientProfile,
   previewRescuePlan,
   respondToBackendOffer,
   submitBackendReceipt,
   type ApiFoodAnalysis,
   type ApiImpactSummary,
+  type ApiRecipientProfile,
   type ApiRescuePlan,
 } from "@/lib/api-client"
 
@@ -50,6 +52,7 @@ export interface DemoStoreValue {
   loading: boolean
   apiError: string | null
   impactSummary: ApiImpactSummary | null
+  recipientProfile: ApiRecipientProfile | null
   refresh: () => Promise<void>
   analyzeImage: (file: File) => Promise<ApiFoodAnalysis>
   previewPlan: (input: NewDonationInput) => Promise<ApiRescuePlan>
@@ -190,6 +193,8 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(isApiMode)
   const [apiError, setApiError] = useState<string | null>(null)
   const [impactSummary, setImpactSummary] = useState<ApiImpactSummary | null>(null)
+  const [recipientProfile, setRecipientProfile] =
+    useState<ApiRecipientProfile | null>(null)
 
   const refresh = useCallback(async () => {
     if (!isApiMode) return
@@ -197,12 +202,14 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
     setApiError(null)
     try {
       const recipientRoute = location.pathname.startsWith("/recipient/")
-      const [loadedDonations, impact] = await Promise.all([
+      const [loadedDonations, impact, profile] = await Promise.all([
         recipientRoute ? loadRecipientDonations() : loadDonorDonations(),
         loadImpactSummary(),
+        recipientRoute ? loadRecipientProfile() : Promise.resolve(null),
       ])
       setApiDonations(loadedDonations)
       setImpactSummary(impact)
+      setRecipientProfile(profile)
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Could not load data from the backend."
@@ -227,6 +234,7 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
     loading,
     apiError,
     impactSummary,
+    recipientProfile,
     refresh,
     analyzeImage(file) {
       return analyzeFoodImage(file)

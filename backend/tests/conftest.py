@@ -1,13 +1,35 @@
-import pytest
-from fastapi.testclient import TestClient
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
+
+import pytest
+from fastapi.testclient import TestClient
 
 from app.api import dependencies
 from app.config import get_settings
 from app.main import app
 from app.repositories.memory import get_repository
 from app.services.gemini_service import GeminiService
+
+REAL_GEMINI_GENERATE_CANDIDATE = GeminiService._generate_candidate
+
+
+def demo_gemini_candidate(self, image, content_type):
+    return {
+        "name": "Vegetarian meal",
+        "category": "prepared_meal",
+        "visiblePackaging": "clear_plastic_container",
+        "dietaryTags": ["vegetarian"],
+        "potentialAllergens": [],
+        "quantitySuggestion": None,
+        "confidence": {
+            "name": 0.8,
+            "category": 0.8,
+            "visiblePackaging": 0.7,
+            "dietaryTags": 0.0,
+            "potentialAllergens": 0.0,
+            "quantitySuggestion": 0.0,
+        },
+    }
 
 
 @pytest.fixture
@@ -17,20 +39,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setattr(
         GeminiService,
         "_generate_candidate",
-        lambda self, image, content_type: {
-            "name": "Vegetarian meal",
-            "category": "prepared_meal",
-            "visiblePackaging": "sealed container",
-            "dietaryTags": ["vegetarian"],
-            "potentialAllergens": [],
-            "confidence": {
-                "name": 0.8,
-                "category": 0.8,
-                "visiblePackaging": 0.7,
-                "dietaryTags": 0.7,
-                "potentialAllergens": 0.5,
-            },
-        },
+        demo_gemini_candidate,
     )
     get_repository().__init__()
     get_repository().initialize_demo_data()

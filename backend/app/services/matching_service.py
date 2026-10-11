@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.api import errors
 from app.models.common import AllergenStatus, utc_now
@@ -192,7 +192,7 @@ class MatchingService:
     def _is_open_at(self, recipient: Recipient, arrival: datetime) -> bool:
         try:
             local_arrival = arrival.astimezone(ZoneInfo(recipient.timezone))
-        except Exception:
+        except ZoneInfoNotFoundError:
             return False
         day = local_arrival.strftime("%A").lower()
         for start, end in recipient.hours.get(day, []):

@@ -1,10 +1,11 @@
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
-from app.models.common import TimestampModel
+from app.models.common import AllergenStatus, TimestampModel
+from app.utils.time import as_utc
 
 
 class DonationStatus(str, Enum):
@@ -30,7 +31,7 @@ class Donation(TimestampModel):
     unit: str
     dietary_tags: list[str]
     declared_allergens: list[str]
-    allergen_status: str
+    allergen_status: AllergenStatus
     prepared_at: datetime
     storage_condition: str
     pickup_available_at: datetime
@@ -51,8 +52,20 @@ class CreateDonationRequest(BaseModel):
     unit: str
     dietary_tags: list[str] = Field(default_factory=list)
     declared_allergens: list[str] = Field(default_factory=list)
-    allergen_status: str
+    allergen_status: AllergenStatus
     prepared_at: datetime
     storage_condition: str
     pickup_available_at: datetime
     usable_until: datetime
+    donor_confirmed: bool = False
+
+    @model_validator(mode="after")
+    def validate_cutoff(self) -> "CreateDonationRequest":
+        prepared_at = as_utc(self.prepared_at)
+        pickup_available_at = as_utc(self.pickup_available_at)
+        usable_until = as_utc(self.usable_until)
+        if prepared_at > pickup_available_at:
+            raise ValueError("Preparation time must be at or before pickup availability.")
+        if pickup_available_at > usable_until:
+            raise ValueError("Pickup availability must be at or before the usable-until cutoff.")
+        return self

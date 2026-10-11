@@ -13,6 +13,7 @@ def test_donor_to_recipient_confirmed_receipt_flow(client: TestClient) -> None:
         "dietaryTags": ["vegetarian"],
         "declaredAllergens": [],
         "allergenStatus": "NOT_APPLICABLE",
+        "donorConfirmed": True,
         "preparedAt": now.isoformat(),
         "storageCondition": "refrigerated",
         "pickupAvailableAt": pickup.isoformat(),
