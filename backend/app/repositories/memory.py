@@ -56,6 +56,31 @@ class InMemoryRepository:
     def get_user(self, uid: str) -> UserProfile | None:
         return deepcopy(self.users.get(uid))
 
+    def create_user(self, user: UserProfile) -> UserProfile:
+        self.users[user.uid] = user
+        return deepcopy(user)
+
+    def create_organization(self, organization: Organization) -> Organization:
+        self.organizations[organization.organization_id] = organization
+        return deepcopy(organization)
+
+    def create_recipient(self, recipient: Recipient) -> Recipient:
+        self.recipients[recipient.recipient_id] = recipient
+        return deepcopy(recipient)
+
+    def create_organization_profile(
+        self,
+        organization: Organization,
+        user: UserProfile,
+        recipient: Recipient | None,
+    ) -> UserProfile:
+        if user.uid in self.users:
+            raise ValueError("User profile already exists")
+        self.create_organization(organization)
+        if recipient is not None:
+            self.create_recipient(recipient)
+        return self.create_user(user)
+
     def get_organization(self, organization_id: str) -> Organization | None:
         return deepcopy(self.organizations.get(organization_id))
 
@@ -91,6 +116,20 @@ class InMemoryRepository:
 
     def list_donations(self, organization_id: str) -> list[Donation]:
         return deepcopy([donation for donation in self.donations.values() if donation.donor_organization_id == organization_id])
+
+    def list_all_donations(self) -> list[Donation]:
+        return deepcopy(list(self.donations.values()))
+
+    def list_donations_for_recipient(self, recipient_id: str) -> list[Donation]:
+        donation_ids = {
+            allocation.donation_id
+            for allocation in self.allocations.values()
+            if allocation.recipient_id == recipient_id
+        }
+        return deepcopy([
+            donation for donation in self.donations.values()
+            if donation.donation_id in donation_ids
+        ])
 
     def list_allocations_for_donation(self, donation_id: str) -> list[Allocation]:
         return deepcopy([item for item in self.allocations.values() if item.donation_id == donation_id])
@@ -162,6 +201,9 @@ class InMemoryRepository:
     def get_handoff_code(self, allocation_id: str) -> str | None:
         return self.handoff_codes.get(allocation_id)
 
+    def delete_handoff_code(self, allocation_id: str) -> None:
+        self.handoff_codes.pop(allocation_id, None)
+
     def get_receipt_by_handoff(self, handoff_code_hash: str) -> Receipt | None:
         return deepcopy(next((receipt for receipt in self.receipts.values() if receipt.handoff_code_hash == handoff_code_hash), None))
 
@@ -187,19 +229,34 @@ class InMemoryRepository:
         return {"confirmed_quantity": sum(receipt.quantity_received for receipt in receipts), "receipts_count": len(receipts), "period": "all-time"}
 
     def add_event(self, donation_id: str, event: Event) -> Event:
+        if event.donation_id != donation_id:
+            event = event.model_copy(update={"donation_id": donation_id})
         self.events.setdefault(donation_id, []).append(event)
         return event
 
     def list_events(self, donation_id: str) -> list[Event]:
-        return deepcopy(self.events.get(donation_id, []))
+        return deepcopy([
+            event
+            for event in self.events.get(donation_id, [])
+            if event.donation_id == donation_id
+        ])
 
 
-_repository = InMemoryRepository()
+_memory_repository = InMemoryRepository()
 
 
 def get_repository() -> InMemoryRepository:
-    return _repository
+    from app.config import get_settings
+
+    settings = get_settings()
+    if settings.demo_mode or settings.data_backend == "memory":
+        return _memory_repository
+    from app.repositories.firestore import get_firestore_repository
+
+    return get_firestore_repository()
 
 
 def initialize_demo_data() -> None:
-    _repository.initialize_demo_data()
+    repository = get_repository()
+    if isinstance(repository, InMemoryRepository):
+        repository.initialize_demo_data()

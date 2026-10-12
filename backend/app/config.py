@@ -13,7 +13,10 @@ class Settings(BaseSettings):
     frontend_origin: str = "http://localhost:5173"
     firestore_database: str = "(default)"
     firestore_project_id: str | None = None
+    data_backend: str = "firestore"
+    handoff_encryption_key: str | None = None
     gcs_bucket: str | None = None
+    gcs_location: str = "us-central1"
     vertex_ai_project_id: str | None = None
     vertex_ai_location: str = "us-central1"
     gemini_model: str = "gemini-2.5-flash"
@@ -27,7 +30,6 @@ class Settings(BaseSettings):
     max_upload_bytes: int = 5 * 1024 * 1024
     firebase_project_id: str | None = None
     demo_mode: bool = False
-    seed_data_path: str = "../data/demo"
     request_timeout_seconds: float = 30.0
 
     @property

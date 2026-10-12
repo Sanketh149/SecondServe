@@ -104,8 +104,8 @@ The scope is deliberately bounded so two developers can finish and demonstrate i
 - A rescue plan contains at most **two recipient stops**.
 - A split must conserve quantity exactly; no unit can be assigned twice or disappear from the plan.
 - A recipient gets one active offer at a time for a donation. Relay is sequential and idempotent.
-- Seeded recipient and historical data supports a believable demonstration. Production-scale onboarding or a real-world operational network is not claimed.
-- A simple recurring-opportunity card is included only where the seeded dataset supports it; it uses a documented baseline, not a trained predictive model.
+- Donor and recipient organizations are registered through Firebase-backed onboarding; rescue and forecast history comes from persisted records. Do not seed unlabeled synthetic activity into active workspaces.
+- A history-based opportunity forecast is included. It must report insufficient history rather than fabricate observations or display a success-shaped estimate.
 
 The following are not part of this submission: native apps, real-time driver tracking, payments, SMS/WhatsApp, a general-purpose AI chat assistant, voice donation entry, custom model training, complex multi-vehicle optimization, public recipient discovery, or unsubstantiated environmental-impact estimates.
 
@@ -287,7 +287,7 @@ sum(allocation.quantity) + unallocatedQuantity = donation.quantity
 | `POST /api/v1/offers/{offerId}/response` | Accept or decline an active offer. | Target recipient |
 | `POST /api/v1/allocations/{allocationId}/receipt` | Submit a recipient-confirmed handoff receipt. | Target recipient |
 | `GET /api/v1/impact/summary` | Confirmed impact totals for the caller's organization. | Authenticated |
-| `GET /api/v1/forecast/opportunities` | Simple seeded-data opportunity preview, if sufficient history exists. | Donor/recipient |
+| `GET /api/v1/forecast/opportunities` | History-based weekday opportunity forecast, with explicit insufficient-history response. | Donor/recipient |
 
 Cloud Tasks invokes an internal, authenticated offer-expiration handler. It is not a public frontend endpoint.
 
@@ -449,6 +449,11 @@ Receipt request:
 
 The receipt response includes `receiptId`, `confirmedQuantity`, `confirmedAt`, updated allocation/donation statuses, and the impact totals. It must never include the stored handoff-code hash.
 
+Offer responses and donation details include `expiryScheduled`. Local
+development may leave it false when no publicly reachable Cloud Tasks callback
+is configured; the UI must explain the limitation. In non-local environments,
+missing expiry scheduling is a hard error and the offer must not start.
+
 ---
 
 ## 8. Data Model and Lifecycle
@@ -461,7 +466,7 @@ The receipt response includes `receiptId`, `confirmedQuantity`, `confirmedAt`, u
 - `analyses/{analysisId}` — owner, image object path, validated AI suggestions, expiry, and confirmation state.
 - `donations/{donationId}` — donor-confirmed homogeneous lot details, status, cutoff, and current plan ID.
 - `rescuePlans/{planId}` — preview status, allocations, route, ranked candidates, and creation time.
-- `offers/{offerId}` — allocation, recipient, status, expiry, and transition metadata.
+- `offers/{offerId}` — allocation, recipient, status, expiry, scheduling state, and transition metadata.
 - `allocations/{allocationId}` — planned quantity, confirmed quantity, active candidate index, and status.
 - `donations/{donationId}/events/{eventId}` — append-only timeline events with actor, event type, timestamp, and safe display payload.
 - `receipts/{receiptId}` — allocation, authorized recipient, confirmed quantity, timestamp, and one-time handoff-code hash reference.
@@ -551,9 +556,21 @@ contracts/openapi.yaml
 - Cache route responses briefly by origin, destination sequence, and travel mode.
 - If Google Routes fails, return `UNKNOWN` readiness for affected plans and do not start offers.
 
-### Simple opportunity preview
+### History-based opportunity forecast
 
-The donor dashboard may show the next recurring surplus/demand opportunity using the seeded history only. Use a transparent same-weekday baseline (up to the last four matching observations) and return sample size and source. Do not train an ML model or present synthetic-data forecasts as real. If fewer than four observations exist, return `insufficientHistory` and omit the forecast card.
+The donor dashboard forecasts donation quantity by weekday. New organizations
+start with a clearly identified built-in planning profile so the forecast surface
+is useful before organization-specific history exists. This profile is a model
+prior only: it must not create donation, recipient, receipt, or impact records,
+and the UI must not present its estimates as observed activity. Return
+`usesBaseline`, `sampleSize`, per-opportunity `isBaseline`, model `source`,
+predicted quantity, and a bounded confidence estimate. Recalculate using the
+donor's persisted weekday donation history after at least four distinct weekly
+observations are available for a weekday; actual history replaces that weekday's
+starting estimate. Explain via an info affordance that estimates are guidance
+and update as history accumulates. Recipient accounts continue to receive an
+explicit insufficient-history response until recipient-demand history is
+modeled.
 
 ---
 
@@ -701,7 +718,7 @@ The dates below reserve the final days for judging artifacts and submission. The
 | 5 | Rescue plan UI, split allocation, map layout. | Plan generation, quantity invariants, Routes API for bounded candidate plans. | One- and two-recipient plans conserve quantity and obey cutoff. |
 | 6 | Recipient offer inbox, countdown and relay timeline. | Offer state machine, Cloud Tasks expiry, fallback and race/idempotency tests. | Decline immediately relays; timeout path is scheduled. |
 | 7 | Handoff code and receipt forms; impact UI. | Code issuance/validation, receipt persistence and idempotent impact totals. | Only receipt-confirmed units count. |
-| 8 | Responsive/accessibility polish; seeded forecast card. | Forecast baseline, error hardening, seed/demo reset, operational logs. | Complete happy path works against seeded data. |
+| 8 | Responsive/accessibility polish; history-based forecast and empty state. | Weekday regression, insufficient-history behavior, error hardening, operational logs. | Forecast uses persisted observations only and reports insufficient history honestly. |
 | 9 | Frontend integration/e2e run, fix critical UI defects. | Backend integration/security tests, Cloud Run deployment. | Deployed end-to-end path works with fresh sign-in. |
 | 10 | Final visual pass; record demo and prepare screenshots. | Production configuration, API health, seed consistency, backend fixes. | Freeze feature scope; only fix defects after this point. |
 
@@ -724,7 +741,7 @@ Reserve October 16–18 for final recording, deck/README checks, submission uplo
 - [ ] Timeout is scheduled, authorized, idempotent, and race-safe.
 - [ ] Recipient can confirm receipt with a valid one-time handoff code.
 - [ ] Impact totals count only receipt-confirmed quantities and cannot be double-counted.
-- [ ] Seeded data and forecasts are clearly marked as demonstration data.
+- [ ] Forecasts distinguish the built-in planning profile from actual donation history, update from persisted observations, and never create fabricated activity or impact.
 
 ### Quality and deployment
 

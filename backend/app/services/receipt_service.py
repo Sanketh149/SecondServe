@@ -48,7 +48,7 @@ class ReceiptService:
             status=AllocationStatus.DELIVERED,
             handoff_code_hash=None,
         )
-        self.repository.handoff_codes.pop(allocation_id, None)
+        self.repository.delete_handoff_code(allocation_id)
         donation = self.repository.get_donation(allocation.donation_id)
         if donation is not None:
             confirmed = donation.confirmed_quantity + request.quantity_received

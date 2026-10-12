@@ -11,6 +11,8 @@ import {
 } from "lucide-react"
 import { motion, useReducedMotion } from "motion/react"
 import { Link, NavLink, Outlet, useLocation, useParams } from "react-router-dom"
+import { useAuth } from "@/lib/auth-context"
+import { BrandedLoader } from "@/components/BrandedLoader"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import type { DonationStatus } from "@/lib/demo-data"
@@ -33,22 +35,25 @@ export function Brand({ compact = false }: { compact?: boolean }) {
   )
 }
 
-function WorkspaceCard({ recipientName }: { recipientName?: string }) {
-  const recipient = Boolean(recipientName)
-  const initials = recipientName
-    ? recipientName
+function WorkspaceCard({
+  organizationName,
+  recipient,
+}: {
+  organizationName: string
+  recipient: boolean
+}) {
+  const initials = organizationName
         .split(" ")
         .map((part) => part[0])
         .join("")
-    : "GL"
   return (
     <div className="workspace-card">
       <span className={`workspace-avatar${recipient ? " workspace-avatar--recipient" : ""}`}>
         {initials}
       </span>
       <span className="workspace-copy">
-        <span className="workspace-eyebrow">DEMO WORKSPACE</span>
-        <strong>{recipientName ?? "Green Leaf Kitchen"}</strong>
+        <span className="workspace-eyebrow">ORGANIZATION</span>
+        <strong>{organizationName}</strong>
       </span>
     </div>
   )
@@ -86,7 +91,8 @@ function Shell({
   recipient?: boolean
   recipientId?: string
 }) {
-  const { apiError, apiMode, loading, refresh } = useDemoStore()
+  const { apiError, initialLoading, refresh } = useDemoStore()
+  const { profile, signOut } = useAuth()
   const recipientItems = [
     { to: `/recipient/${recipientId}/offers`, label: "Offers", icon: HeartHandshake },
     { to: `/recipient/${recipientId}/capacity`, label: "Capacity & needs", icon: ClipboardList },
@@ -96,19 +102,26 @@ function Shell({
   const items = recipient ? recipientItems : donorNav
   const location = useLocation()
   const current = items.find((item) => location.pathname.startsWith(item.to))
-  const recipientName =
-    recipientId === "community-kitchen"
-      ? "Community Kitchen"
-      : recipientId === "neighborhood-kitchen"
-        ? "Neighborhood Kitchen"
-        : "Hope Shelter"
-  const userName = recipient ? recipientName : "Jordan Davis"
+  const organizationName = profile?.organizationName ?? "Organization"
+  const userName = profile?.displayName ?? profile?.organizationName ?? "Account"
+
+  if (initialLoading && !apiError) {
+    return (
+      <BrandedLoader
+        title="Preparing your workspace"
+        description="We’re securely connecting your account and loading your organization data."
+      />
+    )
+  }
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <Brand />
-        <WorkspaceCard recipientName={recipient ? recipientName : undefined} />
+        <WorkspaceCard
+          organizationName={organizationName}
+          recipient={Boolean(recipient)}
+        />
         <div className="nav-caption">WORKSPACE</div>
         <Navigation items={items} />
         {!recipient && (
@@ -126,9 +139,9 @@ function Shell({
             <p>Your capacity helps donors plan feasible rescues.</p>
           </div>
         )}
-        <div className="sidebar-demo-note">
-          <span className="demo-dot" />
-          Sample data · demo only
+        <div className="sidebar-organization-note">
+          <MapPin aria-hidden="true" size={13} />
+          <span>{profile?.organizationAddress ?? "Organization workspace"}</span>
         </div>
       </aside>
 
@@ -142,49 +155,44 @@ function Shell({
             <span>{current?.label ?? "Overview"}</span>
           </div>
           <div className="topbar-right">
-            <span className="sample-label">{apiMode ? "BACKEND" : "DEMO"}</span>
             <button
-              aria-label="Notifications are disabled in the demo"
+              aria-label="Notifications are unavailable"
               className="icon-button"
               disabled
-              title="Notifications are disabled in the demo"
+              title="Notifications are unavailable"
               type="button"
             >
               <Bell aria-hidden="true" size={18} />
             </button>
             <div className="profile">
               <span className="profile-avatar">
-                {recipient
-                  ? recipientName
-                      .split(" ")
-                      .map((part) => part[0])
-                      .join("")
-                  : "JD"}
+                {userName.split(" ").map((part) => part[0]).join("").slice(0, 2)}
               </span>
               <span className="profile-copy">
                 <strong>{userName}</strong>
                 <span>{recipient ? "Recipient account" : "Donor account"}</span>
               </span>
             </div>
+            <button
+              className="sign-out-button"
+              onClick={() => void signOut()}
+              type="button"
+            >
+              Sign out
+            </button>
           </div>
         </header>
-        {apiMode && (
+        {apiError && (
           <div className="api-status">
-            {apiError ? (
-              <div className="api-status-error" role="alert">
-                <span>{apiError}</span>
-                <button onClick={() => void refresh().catch(() => undefined)} type="button">
-                  Retry
-                </button>
-              </div>
-            ) : loading ? (
-              <span role="status">Loading live backend data…</span>
-            ) : (
-              <span>Connected to configured backend · demo identity</span>
-            )}
+            <div className="api-status-error" role="alert">
+              <span>{apiError}</span>
+              <button onClick={() => void refresh().catch(() => undefined)} type="button">
+                Retry
+              </button>
+            </div>
           </div>
         )}
-        <main className="page-content">{children}</main>
+        <main className={`page-content${!recipient && location.pathname === "/donor/impact" ? " page-content--impact" : ""}`}>{children}</main>
         <nav aria-label="Mobile primary navigation" className="mobile-nav">
           {items.map(({ to, label, icon: Icon }) => (
             <NavLink
@@ -391,7 +399,7 @@ export function ReadinessNotice({
 }
 
 export function DemoTag() {
-  return <Badge className="demo-tag" variant="neutral">SAMPLE DATA</Badge>
+  return null
 }
 
 export function PrimaryLink({

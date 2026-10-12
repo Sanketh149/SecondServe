@@ -15,5 +15,6 @@ class UserProfile(TimestampModel):
 class CurrentUser(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
     uid: str
-    role: Role
-    organization_id: str
+    role: Role | None = None
+    organization_id: str | None = None
+    display_name: str | None = None

@@ -53,6 +53,8 @@ class PlanService:
             self.repository,
             RouteService(self.repository),
         ).build_plan(donation, donor_organization_id)
+        if plan.status.value not in {"FULL", "PARTIAL"}:
+            return plan
         self.repository.create_plan(plan)
         for plan_allocation in plan.allocations:
             fallback_ids = [

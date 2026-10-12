@@ -6,36 +6,45 @@ import {
   Camera,
   Check,
   CheckCircle2,
+  HeartHandshake,
   ChevronLeft,
   ChevronRight,
   Clock3,
   LoaderCircle,
   MapPin,
+  Info,
   Plus,
   ShieldCheck,
   Sparkles,
   Utensils,
+  FaceSlightlySmilingPlus
 } from "lucide-react"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { useEffect, useRef, useState, type ChangeEvent } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
-import { AvatarStack, DemoTag, MetricCard, PageHeading, PrimaryLink, ReadinessNotice, RescueTimeline, RouteMeta, StatusBadge } from "@/components/AppShell"
+import { AvatarStack, MetricCard, PageHeading, PrimaryLink, ReadinessNotice, RescueTimeline, RouteMeta, StatusBadge } from "@/components/AppShell"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import {
-  demoActivity,
   getConfirmedQuantity,
   getCurrentAllocation,
-  getImpactTotals,
-  recipientCandidates,
   type DemoDonation,
   type NewDonationInput,
-  type RecipientCandidate,
 } from "@/lib/demo-data"
 import { useDemoStore } from "@/lib/demo-context"
-import type { ApiFoodAnalysis, ApiRescuePlan } from "@/lib/api-client"
+import type { ApiFoodAnalysis, ApiForecast, ApiRescuePlan } from "@/lib/api-client"
+import { useAuth } from "@/lib/auth-context"
+
+function getRecentWeekStarts(): Date[] {
+  return Array.from({ length: 8 }, (_, index) => {
+    const start = new Date()
+    start.setHours(0, 0, 0, 0)
+    start.setDate(start.getDate() - (7 - index) * 7)
+    return start
+  })
+}
 
 function formatStatusDescription(donation: DemoDonation): string {
   if (donation.status === "RECEIVED") return "All allocated meals were confirmed received"
@@ -165,57 +174,82 @@ function ActiveRescueCard({ donation }: { donation: DemoDonation }) {
   )
 }
 
-function OpportunityCard() {
-  const barHeights = [38, 49, 46, 60, 54, 75, 57]
-  const days = ["W", "T", "F", "S", "S", "M", "T"]
+function OpportunityCard({ forecast }: { forecast: ApiForecast | null }) {
+  const [forecastInfoOpen, setForecastInfoOpen] = useState(false)
 
   return (
     <Card className="panel opportunity-card">
       <div className="panel-heading">
         <h2>Rescue opportunity</h2>
-        <Link className="panel-link" to="/donor/impact">
-          Details
-        </Link>
+        <div className="forecast-heading-actions">
+          <button
+            aria-controls="forecast-info-popover"
+            aria-expanded={forecastInfoOpen}
+            aria-label="About the surplus forecast"
+            className="forecast-info"
+            onClick={() => setForecastInfoOpen((open) => !open)}
+            type="button"
+          >
+            <Info aria-hidden="true" size={16} />
+          </button>
+          {forecastInfoOpen && (
+            <div className="forecast-info-popover" id="forecast-info-popover" role="status">
+              <p>
+                New workspaces start with a built-in planning profile, not recorded
+                activity. As donations are logged, estimates recalculate from your
+                weekday history.
+              </p>
+              <button
+                aria-label="Close forecast information"
+                className="forecast-info-close"
+                onClick={() => setForecastInfoOpen(false)}
+                type="button"
+              >
+                ×
+              </button>
+            </div>
+          )}
+        </div>
       </div>
       <div className="opportunity-content">
-        <div className="opportunity-label">
-          <span className="opportunity-pulse" />
-          SAMPLE OPPORTUNITY
-        </div>
-        <h3>Friday could be a good day to plan ahead.</h3>
-        <p>Example pattern: surplus may overlap with nearby community demand.</p>
-        <div
-          aria-label="Illustrative surplus by day; Monday is the highest"
-          className="forecast-chart"
-          role="img"
-        >
-          <span className="chart-caption">Example surplus pattern · recent Fridays</span>
-          <div className="chart-bars">
-            {barHeights.map((height, index) => (
-              <span className="chart-day" key={`${days[index]}-${index}`}>
-                <span
-                  className={`chart-bar${index === 5 ? " chart-bar--highlight" : ""}`}
-                  style={{ height: `${height}%` }}
-                />
-                <span>{days[index]}</span>
-              </span>
-            ))}
+        {forecast?.opportunities.length ? (
+          <>
+            <div className="opportunity-label">WEEKLY SURPLUS FORECAST</div>
+            <h3>{forecast.usesBaseline ? "Starting forecast for your kitchen" : "Plan around your recurring surplus"}</h3>
+            <p>
+              {forecast.usesBaseline
+                ? "Planning profile adapts as your donation history grows. Estimates only."
+                : `Based on ${forecast.sampleSize} weeks of your donation history · planning estimates, not guarantees.`}
+            </p>
+            <div aria-label="Forecast by weekday, in meals" className="forecast-week-calendar">
+              {forecast.opportunities.map((opportunity) => (
+                <div
+                  aria-label={`${opportunity.weekday}: ${opportunity.predictedQuantity} meals${opportunity.isBaseline ? ", starting estimate" : ", based on donation history"}`}
+                  className={`forecast-calendar-day${opportunity.isBaseline ? " forecast-calendar-day--baseline" : ""}`}
+                  key={opportunity.weekday}
+                  title={`${opportunity.weekday}: ${opportunity.predictedQuantity} meals${opportunity.isBaseline ? " · starting estimate" : ` · ${opportunity.sampleSize} weeks of history`}`}
+                >
+                  <span>{opportunity.weekday.slice(0, 3)}</span>
+                  <strong>{opportunity.predictedQuantity}</strong>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="forecast-empty">
+            <span className="opportunity-label">WEEKLY SURPLUS FORECAST</span>
+            <h3>Forecast is temporarily unavailable</h3>
+            <p>We couldn’t load a planning estimate right now. Try refreshing your workspace.</p>
           </div>
-        </div>
-        <ReadinessNotice variant="warning">
-          <span className="notice-icon">✦</span>
-          <span>
-            <strong>Potential rescue window</strong>
-            <span>Hope Shelter has capacity this Friday evening.</span>
-          </span>
-        </ReadinessNotice>
+        )}
       </div>
     </Card>
   )
 }
 
 export function DonorDashboardPage() {
-  const { apiMode, donations, impactSummary } = useDemoStore()
+  const { donations, forecast, impactSummary } = useDemoStore()
+  const { profile } = useAuth()
   const active = donations.find((donation) =>
     ["OFFERING", "RELAYED", "ACCEPTED", "PARTIALLY_RECEIVED"].includes(
       donation.status,
@@ -226,9 +260,7 @@ export function DonorDashboardPage() {
       donation.status,
     ),
   ).length
-  const impact = apiMode
-    ? getConnectedImpact(donations, impactSummary)
-    : getImpactTotals(donations)
+  const impact = getConnectedImpact(donations, impactSummary)
 
   return (
     <>
@@ -239,26 +271,18 @@ export function DonorDashboardPage() {
           </PrimaryLink>
         }
         description="Here’s what’s happening with your food rescue efforts."
-        title={
-          <>
-            Good morning, Jordan <DemoTag />
-          </>
-        }
+        title={`Welcome, ${profile?.displayName ?? profile?.organizationName ?? "there"}`}
       />
       <div className="metrics-grid">
         <MetricCard
           icon={<ArrowUpRight aria-hidden="true" size={17} />}
-          note={
-            <>
-              <strong>+18%</strong> from last month
-            </>
-          }
+          note="Across confirmed recipient receipts"
           title="Meals rescued"
           value={impact.confirmedMeals.toLocaleString()}
         />
         <MetricCard
           icon={<span className="metric-target">◎</span>}
-          note={`${activeCount} awaiting recipient response`}
+          note={`${activeCount} active rescue${activeCount === 1 ? "" : "s"}`}
           title="Active donations"
           value={String(activeCount)}
         />
@@ -271,109 +295,52 @@ export function DonorDashboardPage() {
       </div>
 
       <div className="dashboard-main-grid">
-        <div className="dashboard-primary-column">
-          {active ? (
-            <ActiveRescueCard donation={active} />
-          ) : (
-            <Card className="panel empty-panel">
-              <div className="empty-state">
-                <span className="empty-icon"><Utensils aria-hidden="true" size={20} /></span>
-                <h2>No active rescues</h2>
-                <p>Create a donation when you have safe surplus food to share.</p>
-                <PrimaryLink to="/donor/new">
-                  Start a donation <ArrowRight aria-hidden="true" size={16} />
-                </PrimaryLink>
-              </div>
-            </Card>
-          )}
-          <RecentActivity />
-        </div>
-        <div className="dashboard-secondary-column">
-          <OpportunityCard />
-          <ImpactPreview
-            confirmed={impact.confirmedMeals}
-            offered={impact.offeredMeals}
-            rescueRate={impact.rescueRate}
-          />
-        </div>
+        {active ? (
+          <ActiveRescueCard donation={active} />
+        ) : (
+          <Card className="panel empty-panel dashboard-active-card">
+            <div className="empty-state">
+              <span className="empty-icon"><Utensils aria-hidden="true" size={20} /></span>
+              <h2>No active rescues</h2>
+              <p>Create a donation when you have safe surplus food to share.</p>
+              <PrimaryLink to="/donor/new">
+                Start a donation <ArrowRight aria-hidden="true" size={16} />
+              </PrimaryLink>
+            </div>
+          </Card>
+        )}
+        <OpportunityCard forecast={forecast} />
+        <RecentActivity />
+        <ImpactPreview
+          confirmed={impact.confirmedMeals}
+          offered={impact.offeredMeals}
+          rescueRate={impact.rescueRate}
+        />
       </div>
-      <p className="demo-disclaimer">
-        Demo workspace · figures and organizations are synthetic sample data, not live community activity.
-      </p>
     </>
   )
 }
 
 function RecentActivity() {
-  const { apiMode, donations } = useDemoStore()
-  if (apiMode) {
-    const activities = donations
-      .flatMap((donation) =>
-        (donation.events ?? []).map((event) => ({
-          id: `${donation.id}-${event.type}-${event.occurredAt}`,
-          title: activityTitle(event.type),
-          detail: `${donation.itemName} · ${event.detail}`,
-          occurredAt: event.occurredAt,
-          time: new Date(event.occurredAt).toLocaleString([], {
-            month: "short",
-            day: "numeric",
-            hour: "numeric",
-            minute: "2-digit",
-          }),
-          kind: event.type === "RECEIPT_CONFIRMED" ? "received" : "plan",
-        })),
-      )
-      .sort(
-        (left, right) =>
-          Date.parse(right.occurredAt) - Date.parse(left.occurredAt),
-      )
-      .slice(0, 3)
-
-    return (
-      <Card className="panel activity-panel">
-        <div className="panel-heading">
-          <h2>Recent activity</h2>
-          <Link className="panel-link" to="/donor/donations">
-            See history <ArrowRight aria-hidden="true" size={14} />
-          </Link>
-        </div>
-        <div className="activity-list">
-          {activities.length > 0 ? (
-            activities.map((activity) => (
-              <div className="activity-row" key={activity.id}>
-                <span className={`activity-icon activity-icon--${activity.kind}`}>
-                  {activity.kind === "received" ? (
-                    <Check aria-hidden="true" size={16} />
-                  ) : (
-                    <ArrowUpRight aria-hidden="true" size={16} />
-                  )}
-                </span>
-                <span className="activity-copy">
-                  <strong>{activity.title}</strong>
-                  <span>{activity.detail}</span>
-                </span>
-                <span className="activity-time">{activity.time}</span>
-              </div>
-            ))
-          ) : (
-            <p className="panel-empty-note">Backend events will appear here after a donation is created.</p>
-          )}
-        </div>
-      </Card>
+  const { donations } = useDemoStore()
+  const activities = donations
+    .flatMap((donation) =>
+      (donation.events ?? []).map((event) => ({
+        id: `${donation.id}-${event.type}-${event.occurredAt}`,
+        title: activityTitle(event.type),
+        detail: `${donation.itemName} · ${event.detail}`,
+        occurredAt: event.occurredAt,
+        time: new Date(event.occurredAt).toLocaleString([], {
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        }),
+        kind: event.type === "RECEIPT_CONFIRMED" ? "received" : "plan",
+      })),
     )
-  }
-
-  const generated = donations
-    .filter((donation) => donation.createdAt === "Just now")
-    .slice(0, 1)
-    .map((donation) => ({
-      id: donation.id,
-      title: "Rescue plan started",
-      detail: `${donation.itemName} · ${donation.quantity} meals`,
-      time: "Just now",
-      kind: "plan",
-    }))
-  const activities = [...generated, ...demoActivity].slice(0, 3)
+    .sort((left, right) => Date.parse(right.occurredAt) - Date.parse(left.occurredAt))
+    .slice(0, 3)
 
   return (
     <Card className="panel activity-panel">
@@ -384,14 +351,10 @@ function RecentActivity() {
         </Link>
       </div>
       <div className="activity-list">
-        {activities.map((activity) => (
+        {activities.length ? activities.map((activity) => (
           <div className="activity-row" key={activity.id}>
             <span className={`activity-icon activity-icon--${activity.kind}`}>
-              {activity.kind === "received" ? (
-                <Check aria-hidden="true" size={16} />
-              ) : (
-                <ArrowUpRight aria-hidden="true" size={16} />
-              )}
+              {activity.kind === "received" ? <Check aria-hidden="true" size={16} /> : <ArrowUpRight aria-hidden="true" size={16} />}
             </span>
             <span className="activity-copy">
               <strong>{activity.title}</strong>
@@ -399,7 +362,11 @@ function RecentActivity() {
             </span>
             <span className="activity-time">{activity.time}</span>
           </div>
-        ))}
+        )) : (
+          <div className="empty-state compact-empty">
+            <p>Your donation and handoff activity will appear here.</p>
+          </div>
+        )}
       </div>
     </Card>
   )
@@ -437,7 +404,12 @@ function ImpactPreview({
         </Link>
       </div>
       <div className="impact-preview-content">
-        <div className="impact-ring">
+        <div
+          className="impact-ring"
+          style={{
+            background: `conic-gradient(var(--brand-primary) 0 ${Math.max(0, Math.min(100, rescueRate))}%, #e6eee8 ${Math.max(0, Math.min(100, rescueRate))}% 100%)`,
+          }}
+        >
           <div>
             <strong>{rescueRate}%</strong>
           </div>
@@ -481,7 +453,7 @@ function DonationRow({ donation }: { donation: DemoDonation }) {
 }
 
 export function DonationsPage() {
-  const { apiMode, donations } = useDemoStore()
+  const { donations } = useDemoStore()
   const [query, setQuery] = useState("")
   const filtered = donations.filter((donation) =>
     donation.itemName.toLowerCase().includes(query.trim().toLowerCase()),
@@ -508,7 +480,7 @@ export function DonationsPage() {
           />
         </label>
         <span className="toolbar-meta">
-          {filtered.length} donation{filtered.length === 1 ? "" : "s"} · {apiMode ? "backend records" : "demo records"}
+          {filtered.length} donation{filtered.length === 1 ? "" : "s"}
         </span>
       </div>
       <Card className="panel donation-list">
@@ -523,95 +495,93 @@ export function DonationsPage() {
           </div>
         )}
       </Card>
-      <p className="demo-disclaimer">
-        {apiMode
-          ? "These are records from the local in-memory API demo; they are not saved to a production database."
-          : "Offer and receipt events in this prototype are simulated in browser memory."}
-      </p>
     </>
   )
 }
 
 export function DonorImpactPage() {
-  const { apiMode, donations, impactSummary } = useDemoStore()
-  const impact = apiMode
-    ? getConnectedImpact(donations, impactSummary)
-    : getImpactTotals(donations)
+  const { donations, impactSummary } = useDemoStore()
+  const impact = getConnectedImpact(donations, impactSummary)
   const { confirmedMeals: confirmed } = impact
-  const [range, setRange] = useState(apiMode ? "All time" : "This month")
+  const communityPartnersReached = new Set(
+    donations.flatMap((donation) =>
+      donation.allocations
+        .filter((allocation) => allocation.status === "RECEIVED")
+        .map((allocation) => allocation.recipientId),
+    ),
+  ).size
+  const receiptEvents = donations.flatMap((donation) =>
+    (donation.events ?? [])
+      .filter((event) => event.type === "RECEIPT_CONFIRMED")
+      .map((event) => ({
+        occurredAt: new Date(event.occurredAt),
+        quantity: Number(event.payload.quantityReceived ?? 0),
+      })),
+  )
+  const [weekStarts] = useState(getRecentWeekStarts)
+  const weeklyReceipts = weekStarts.map((start, index) => {
+    const end = new Date(start)
+    end.setDate(end.getDate() + 7)
+    const quantity = receiptEvents
+      .filter((receipt) => receipt.occurredAt >= start && receipt.occurredAt < end)
+      .reduce((total, receipt) => total + receipt.quantity, 0)
+    return { label: `W${index + 1}`, quantity }
+  })
+  const maxWeeklyQuantity = Math.max(...weeklyReceipts.map((week) => week.quantity), 1)
 
   return (
-    <>
+    <div className="donor-impact-page">
       <PageHeading
-        action={
-          <label className="range-select">
-            <CalendarDays aria-hidden="true" size={16} />
-            <select
-              aria-label="Impact date range"
-              onChange={(event) => setRange(event.target.value)}
-              value={range}
-            >
-              {apiMode ? (
-                <option>All time</option>
-              ) : (
-                <>
-                  <option>This month</option>
-                  <option>Last 90 days</option>
-                  <option>All time</option>
-                </>
-              )}
-            </select>
-          </label>
-        }
-        description={`Recipient-confirmed outcomes for ${range.toLowerCase()}.`}
+        description="Recipient-confirmed outcomes for your organization."
         title="Your impact"
       />
-      <ReadinessNotice variant="success">
-        <ShieldCheck aria-hidden="true" size={19} />
-        <span>
-          <strong>Verified by recipients</strong>
-          <span>Only completed handoff receipts count toward rescued meals.</span>
-        </span>
-      </ReadinessNotice>
       <div className="metrics-grid impact-metrics">
         <MetricCard
-          icon={<CheckCircle2 aria-hidden="true" size={17} />}
-          note="Confirmed at recipient handoff"
-          title="Meals confirmed received"
+          icon={<FaceSlightlySmilingPlus aria-hidden="true" size={17} />}
+          note="One recipient-confirmed meal = one smile"
+          title="Smiles sparked"
           value={confirmed.toLocaleString()}
         />
         <MetricCard
-          icon={<Utensils aria-hidden="true" size={17} />}
-          note="Across active and completed plans"
-          title="Meals offered"
-          value={String(impact.offeredMeals)}
-        />
-        <MetricCard
-          icon={<ArrowUpRight aria-hidden="true" size={17} />}
-          note="Confirmed received ÷ offered"
+          icon={<Sparkles aria-hidden="true" size={17} />}
+          note="Confirmed meals ÷ meals offered"
           title="Rescue completion"
           value={`${impact.rescueRate}%`}
+        />
+        <MetricCard
+          icon={<HeartHandshake aria-hidden="true" size={17} />}
+          note="Unique organizations with confirmed handoffs"
+          title="Community partners reached"
+          value={communityPartnersReached.toLocaleString()}
         />
       </div>
       <div className="impact-page-grid">
         <Card className="panel impact-chart-card">
           <div className="panel-heading">
             <h2>Confirmed meals over time</h2>
-            <Badge variant="neutral">SAMPLE DATA</Badge>
+            <Badge variant="neutral">RECEIPT HISTORY</Badge>
           </div>
-          <div className="impact-chart">
-            {[48, 63, 57, 75, 66, 92, 78, 86, 72, 100, 82, 94].map(
-              (height, index) => (
-                <div className="impact-chart-column" key={index}>
-                  <span style={{ height: `${height}%` }} />
-                  <small>{["W1", "W2", "W3", "W4"][index % 4]}</small>
+          {receiptEvents.length > 0 ? (
+            <div className="impact-chart">
+              {weeklyReceipts.map((week) => (
+                <div className="impact-chart-column" key={week.label}>
+                  <span
+                    style={{
+                      height: `${week.quantity === 0 ? 2 : Math.max(8, (week.quantity / maxWeeklyQuantity) * 100)}%`,
+                    }}
+                    title={`${week.quantity} meals confirmed`}
+                  />
+                  <small>{week.label}</small>
                 </div>
-              ),
-            )}
-          </div>
-          <p className="chart-footnote">
-            Illustrative weekly totals. Historical sample data is not a live report.
-          </p>
+              ))}
+            </div>
+          ) : (
+            <div className="impact-chart-empty">
+              <span className="empty-icon"><CheckCircle2 aria-hidden="true" size={19} /></span>
+              <strong>No confirmed handoffs yet</strong>
+              <p>Weekly history will appear after recipients confirm a pickup.</p>
+            </div>
+          )}
         </Card>
         <Card className="panel impact-breakdown">
           <div className="panel-heading">
@@ -636,10 +606,7 @@ export function DonorImpactPage() {
           </div>
         </Card>
       </div>
-      <p className="demo-disclaimer">
-        Sample historical totals are synthetic and do not represent real-world community outcomes.
-      </p>
-    </>
+    </div>
   )
 }
 
@@ -666,72 +633,10 @@ function localDateTime(hoursFromNow: number): string {
   return new Date(date.getTime() - offset).toISOString().slice(0, 16)
 }
 
-function localDateTimeFor(date: Date): string {
-  const offset = date.getTimezoneOffset() * 60_000
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16)
-}
-
-function nextDemoPickupWindow(): { pickup: string; cutoff: string } {
-  const timeZone = "America/New_York"
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    weekday: "short",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(new Date())
-  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? ""
-  const day = new Date(
-    Date.UTC(Number(part("year")), Number(part("month")) - 1, Number(part("day"))),
-  )
-  const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-  const currentHour = Number(part("hour"))
-  if (
-    weekdays.indexOf(part("weekday")) === 0 ||
-    weekdays.indexOf(part("weekday")) === 6 ||
-    currentHour >= 9
-  ) {
-    day.setUTCDate(day.getUTCDate() + 1)
-  }
-  while (day.getUTCDay() === 0 || day.getUTCDay() === 6) {
-    day.setUTCDate(day.getUTCDate() + 1)
-  }
-
-  const targetWallClock = Date.UTC(
-    day.getUTCFullYear(),
-    day.getUTCMonth(),
-    day.getUTCDate(),
-    10,
-    0,
-  )
-  let pickupAt = targetWallClock
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const observed = new Intl.DateTimeFormat("en-US", {
-      timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hourCycle: "h23",
-    }).formatToParts(new Date(pickupAt))
-    const observedPart = (type: string) =>
-      Number(observed.find((item) => item.type === type)?.value ?? 0)
-    const observedWallClock = Date.UTC(
-      observedPart("year"),
-      observedPart("month") - 1,
-      observedPart("day"),
-      observedPart("hour"),
-      observedPart("minute"),
-    )
-    pickupAt += targetWallClock - observedWallClock
-  }
-  const pickup = new Date(pickupAt)
+function nextPickupWindow(): { pickup: string; cutoff: string } {
   return {
-    pickup: localDateTimeFor(pickup),
-    cutoff: localDateTimeFor(new Date(pickupAt + 5 * 60 * 60 * 1000)),
+    pickup: localDateTime(0.25),
+    cutoff: localDateTime(5.25),
   }
 }
 
@@ -742,13 +647,6 @@ function formatLocalDate(value: string): string {
     hour: "numeric",
     minute: "2-digit",
   })
-}
-
-function splitQuantity(quantity: number, recipientCount: number): number[] {
-  if (recipientCount === 0) return []
-  if (recipientCount === 1) return [quantity]
-  const first = Math.ceil(quantity * 0.75)
-  return [first, quantity - first]
 }
 
 function categoryLabel(category: string): string {
@@ -780,15 +678,15 @@ const steps = [
 
 export function NewDonationPage() {
   const navigate = useNavigate()
-  const { analyzeImage, apiMode, createDonation, previewPlan } = useDemoStore()
+  const { analyzeImage, createDonation, previewPlan } = useDemoStore()
   const reducedMotion = useReducedMotion() ?? false
   const transition = { duration: reducedMotion ? 0.12 : 0.2, ease: "easeOut" as const }
   const [step, setStep] = useState(0)
-  const [analysisApplied, setAnalysisApplied] = useState(false)
   const [analysisResult, setAnalysisResult] = useState<ApiFoodAnalysis | null>(null)
   const [analysisLoading, setAnalysisLoading] = useState(false)
   const [planPreview, setPlanPreview] = useState<ApiRescuePlan | null>(null)
   const [planPreviewLoading, setPlanPreviewLoading] = useState(false)
+  const [allergenEditorOpen, setAllergenEditorOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [passportReviewOpen, setPassportReviewOpen] = useState(false)
   const [passportReviewChecked, setPassportReviewChecked] = useState(false)
@@ -799,11 +697,11 @@ export function NewDonationPage() {
   const continueButtonRef = useRef<HTMLButtonElement>(null)
   const passportDialogRef = useRef<HTMLElement>(null)
   const [draft, setDraft] = useState<DonationDraft>(() => {
-    const pickupWindow = nextDemoPickupWindow()
+    const pickupWindow = nextPickupWindow()
     return {
       itemName: "",
       category: "Prepared meals",
-      quantity: apiMode ? 0 : 32,
+      quantity: 0,
       quantityWasSuggested: false,
       dietaryTags: [],
       potentialAllergens: "",
@@ -816,11 +714,6 @@ export function NewDonationPage() {
       imageName: "",
     }
   })
-  const [selectedRecipients, setSelectedRecipients] = useState([
-    "hope-shelter",
-    "community-kitchen",
-  ])
-  const [allocationQuantities, setAllocationQuantities] = useState([24, 8])
   const [error, setError] = useState("")
   useEffect(() => {
     if (!passportReviewOpen) return
@@ -834,36 +727,6 @@ export function NewDonationPage() {
     window.addEventListener("keydown", handleEscape)
     return () => window.removeEventListener("keydown", handleEscape)
   }, [passportReviewOpen])
-  const allocations = selectedRecipients.map((id, index) => ({
-    recipient: recipientCandidates.find((candidate) => candidate.id === id)!,
-    quantity: allocationQuantities[index] ?? 0,
-  }))
-  const allocatedQuantity = allocations.reduce(
-    (total, item) => total + item.quantity,
-    0,
-  )
-  const remainingQuantity = draft.quantity - allocatedQuantity
-  const allocationIsBalanced = remainingQuantity === 0
-  const estimatedRouteMinutes = allocations.reduce(
-    (total, item) => total + Number.parseInt(item.recipient.eta, 10),
-    0,
-  )
-  const pickupAt = Date.parse(draft.pickupAvailableAt)
-  const usableUntilAt = Date.parse(draft.usableUntil)
-  const routeForecast: {
-    variant: "danger" | "success" | "warning"
-    label: string
-  } =
-    allocations.length === 0
-      ? { variant: "warning", label: "Choose a recipient" }
-      : !Number.isFinite(pickupAt) || !Number.isFinite(usableUntilAt)
-        ? { variant: "warning", label: "Set pickup and cutoff" }
-        : !allocationIsBalanced
-          ? { variant: "warning", label: "Complete allocation" }
-          : pickupAt + estimatedRouteMinutes * 60_000 > usableUntilAt
-            ? { variant: "danger", label: "After cutoff" }
-            : { variant: "success", label: "Within entered cutoff" }
-
   function updateDraft<Key extends keyof DonationDraft>(
     key: Key,
     value: DonationDraft[Key],
@@ -910,22 +773,14 @@ export function NewDonationPage() {
       quantity: current.quantityWasSuggested ? 0 : current.quantity,
       quantityWasSuggested: false,
     }))
-    setAnalysisApplied(false)
     setAnalysisResult(null)
     setPassportReviewApproved(false)
     setPlanPreview(null)
-    if (!apiMode) {
-      setFileMessage(
-        "Photo selected. Image analysis is not connected in this demo; enter or sample the details below.",
-      )
-      return
-    }
     setAnalysisLoading(true)
     setFileMessage("Sending the image to the configured backend for analysis…")
     void analyzeImage(file)
       .then((result) => {
         setAnalysisResult(result)
-        setAnalysisApplied(true)
         const quantitySuggestion = result.candidate.quantitySuggestion?.value
         const suggestedQuantity =
           typeof quantitySuggestion === "number" &&
@@ -965,24 +820,6 @@ export function NewDonationPage() {
       .finally(() => setAnalysisLoading(false))
   }
 
-  function useSampleSuggestion() {
-    setPassportReviewApproved(false)
-    setDraft((current) => ({
-      ...current,
-      itemName: "Vegetarian pasta meals",
-      category: "Prepared meals",
-      dietaryTags: ["Vegetarian"],
-      quantityWasSuggested: false,
-      donorConfirmed: false,
-    }))
-    setAnalysisApplied(true)
-    setAnalysisResult(null)
-    updateDraft("analysisId", "")
-    setFileMessage(
-      "Demo sample suggestions applied. They are not generated from your photo and must be reviewed.",
-    )
-  }
-
   function donationInput(): NewDonationInput {
     return {
       ...(draft.analysisId ? { analysisId: draft.analysisId } : {}),
@@ -1000,33 +837,8 @@ export function NewDonationPage() {
       pickupAvailableAt: draft.pickupAvailableAt,
       usableUntil: draft.usableUntil,
       donorConfirmed: draft.donorConfirmed,
-      allocations: selectedRecipients.map((recipientId, index) => ({
-        recipientId,
-        quantity: allocationQuantities[index] ?? 0,
-      })),
+      allocations: [],
     }
-  }
-
-  function toggleRecipient(candidate: RecipientCandidate) {
-    if (candidate.readiness !== "READY") return
-    setError("")
-    if (selectedRecipients.includes(candidate.id)) {
-      if (selectedRecipients.length === 1) {
-        setError("Choose at least one feasible recipient.")
-        return
-      }
-      const next = selectedRecipients.filter((id) => id !== candidate.id)
-      setSelectedRecipients(next)
-      setAllocationQuantities(splitQuantity(draft.quantity, next.length))
-      return
-    }
-    if (selectedRecipients.length >= 2) {
-      setError("A rescue plan can include at most two recipient stops.")
-      return
-    }
-    const next = [...selectedRecipients, candidate.id]
-    setSelectedRecipients(next)
-    setAllocationQuantities(splitQuantity(draft.quantity, next.length))
   }
 
   function validateStep(): boolean {
@@ -1045,10 +857,6 @@ export function NewDonationPage() {
         quantityInputRef.current?.focus()
         return false
       }
-      if (draft.category === "Other" && !apiMode) {
-        setError("Choose one homogeneous food lot and a supported category before continuing.")
-        return false
-      }
       setError("")
       return true
     }
@@ -1061,28 +869,6 @@ export function NewDonationPage() {
         new Date(draft.pickupAvailableAt) > new Date(draft.usableUntil)
       ) {
         setError("Set valid preparation, storage, pickup, and usable-until details.")
-        return false
-      }
-      if (
-        new Date(draft.pickupAvailableAt).getTime() +
-          estimatedRouteMinutes * 60_000 >
-        new Date(draft.usableUntil).getTime() &&
-        !apiMode
-      ) {
-        setError("The selected route would arrive after your usable-until cutoff.")
-        return false
-      }
-      if (
-        !apiMode &&
-        (selectedRecipients.length === 0 || allocatedQuantity !== draft.quantity)
-      ) {
-        setError("Allocate the full donation quantity across one or two recipients.")
-        return false
-      }
-      if (!apiMode && selectedRecipients.some((id) =>
-        recipientCandidates.find((candidate) => candidate.id === id)?.readiness !== "READY",
-      )) {
-        setError("Only READY recipients can receive automatic offers.")
         return false
       }
       setError("")
@@ -1103,7 +889,7 @@ export function NewDonationPage() {
       return
     }
     if (!validateStep()) return
-    if (step === 1 && apiMode) {
+    if (step === 1) {
       setPlanPreviewLoading(true)
       try {
         const preview = await previewPlan(donationInput())
@@ -1290,37 +1076,10 @@ export function NewDonationPage() {
                   </p>
                 </motion.div>
               ) : fileMessage && !analysisResult ? (
-                <ReadinessNotice
-                  variant={
-                    analysisApplied ? "warning" : "info"
-                  }
-                >
+                <ReadinessNotice variant="warning">
                   {fileMessage}
                 </ReadinessNotice>
               ) : null}
-              {!apiMode && (
-                <div className="sample-analysis-row">
-                  <span>
-                    <Sparkles aria-hidden="true" size={16} />
-                    Want to preview the AI Passport?
-                  </span>
-                  <Button
-                    onClick={useSampleSuggestion}
-                    type="button"
-                    variant="outline"
-                  >
-                    Use sample suggestion
-                  </Button>
-                </div>
-              )}
-              {analysisApplied && !analysisResult && (
-                <div className="suggestion-banner">
-                  <Badge variant="neutral">DEMO AI SUGGESTION</Badge>
-                  <span>
-                    Example suggestion only · no AI service analyzed your image.
-                  </span>
-                </div>
-              )}
               {analysisResult && (
                 <div aria-label="Gemini field suggestions" className="analysis-provenance-grid">
                   {[
@@ -1366,9 +1125,9 @@ export function NewDonationPage() {
               <div className="form-grid">
                 <label className="field-label field-span-2">
                   Food name
-                  {analysisApplied && (
+                  {analysisResult && (
                     <span className="field-provenance">
-                      {analysisResult ? "Gemini suggestion · donor review required" : "Sample suggestion · review"}
+                      Gemini suggestion · donor review required
                     </span>
                   )}
                   <Input
@@ -1380,29 +1139,30 @@ export function NewDonationPage() {
                 </label>
                 <label className="field-label">
                   Food category
-                  <select
-                    className="field-input"
-                    onChange={(event) => updateDraft("category", event.target.value)}
-                    value={draft.category}
-                  >
-                    <option>Prepared meals</option>
-                    <option>Bakery</option>
-                    <option>Produce</option>
-                    <option>Packaged food</option>
-                    <option>Other</option>
-                  </select>
+                  <span className="field-hint field-hint--row">Choose the closest match for recipient planning.</span>
+                  <div className="select-wrap">
+                    <select
+                      className="field-input"
+                      onChange={(event) => updateDraft("category", event.target.value)}
+                      value={draft.category}
+                    >
+                      <option>Prepared meals</option>
+                      <option>Bakery</option>
+                      <option>Produce</option>
+                      <option>Packaged food</option>
+                      <option>Other</option>
+                    </select>
+                  </div>
                 </label>
                 <label className="field-label">
                   Quantity
-                  {apiMode && (
-                    <span className="field-hint">
-                      {draft.quantityWasSuggested
-                        ? `Gemini ballpark · ${Math.round((analysisResult?.candidate.quantitySuggestion?.confidence ?? 0) * 100)}% confidence. Verify and correct the actual count.`
-                        : analysisResult
-                          ? "Gemini could not estimate countable portions in this photo. Enter the actual count."
-                          : "Required · enter the actual count; a photo cannot determine quantity."}
-                    </span>
-                  )}
+                  <span className="field-hint field-hint--row">
+                    {draft.quantityWasSuggested
+                      ? `Gemini ballpark · ${Math.round((analysisResult?.candidate.quantitySuggestion?.confidence ?? 0) * 100)}% confidence. Verify and correct the actual count.`
+                      : analysisResult
+                        ? "Gemini could not estimate countable portions in this photo. Enter the actual count."
+                        : "Required · enter the actual count; a photo cannot determine quantity."}
+                  </span>
                   <span className="quantity-input-wrap">
                     <Input
                       ref={quantityInputRef}
@@ -1414,14 +1174,6 @@ export function NewDonationPage() {
                           : 0
                         updateDraft("quantity", quantity)
                         updateDraft("quantityWasSuggested", false)
-                        const nextRecipients =
-                          quantity < selectedRecipients.length
-                            ? selectedRecipients.slice(0, quantity)
-                            : selectedRecipients
-                        if (nextRecipients.length !== selectedRecipients.length) {
-                          setSelectedRecipients(nextRecipients)
-                        }
-                        setAllocationQuantities(splitQuantity(quantity, nextRecipients.length))
                       }}
                       placeholder="Enter actual count"
                       type="number"
@@ -1447,32 +1199,55 @@ export function NewDonationPage() {
                     ))}
                   </div>
                 </div>
-                <label className="field-label field-span-2">
-                  Potential allergens
-                  <span className="field-hint">AI may suggest visible ingredients, but only your confirmation is used for matching.</span>
-                  <Input
-                    onChange={(event) => updateDraft("potentialAllergens", event.target.value)}
-                    placeholder="Enter known allergens, or leave blank until confirmed"
-                    value={draft.potentialAllergens}
-                  />
-                </label>
-                <label className="field-label field-span-2">
-                  Allergen information status
-                  <select
-                    className="field-input"
-                    onChange={(event) =>
-                      updateDraft(
-                        "allergenStatus",
-                        event.target.value as DonationDraft["allergenStatus"],
-                      )
-                    }
-                    value={draft.allergenStatus}
-                  >
-                    <option value="UNKNOWN">Unknown — not yet confirmed</option>
-                    <option value="DONOR_CONFIRMED">Donor confirmed</option>
-                    <option value="NOT_APPLICABLE">Not applicable</option>
-                  </select>
-                </label>
+                <div className="field-label field-span-2 allergen-review-field">
+                  <span>Allergen confirmation <span className="field-optional">Optional</span></span>
+                  <div className="allergen-review-card">
+                    <div className="allergen-review-summary">
+                      <span>
+                        <strong>Allergen details</strong>
+                        <small>
+                          {draft.potentialAllergens.trim()
+                            ? `AI suggestion: ${draft.potentialAllergens}`
+                            : "No allergens were suggested from the image."}
+                        </small>
+                      </span>
+                      <button
+                        aria-expanded={allergenEditorOpen}
+                        className="allergen-edit-button"
+                        onClick={() => setAllergenEditorOpen((open) => !open)}
+                        type="button"
+                      >
+                        {allergenEditorOpen ? "Done" : "Edit list"}
+                      </button>
+                    </div>
+                    {allergenEditorOpen && (
+                      <Input
+                        aria-label="Known allergens"
+                        onChange={(event) => updateDraft("potentialAllergens", event.target.value)}
+                        placeholder="Enter known allergens, separated by commas"
+                        value={draft.potentialAllergens}
+                      />
+                    )}
+                    <label className="allergen-confirm-checkbox">
+                      <input
+                        checked={draft.allergenStatus === "DONOR_CONFIRMED"}
+                        onChange={(event) =>
+                          updateDraft(
+                            "allergenStatus",
+                            event.target.checked ? "DONOR_CONFIRMED" : "UNKNOWN",
+                          )
+                        }
+                        type="checkbox"
+                      />
+                      <span>
+                        I checked the ingredients and confirm this allergen information is accurate to the best of my knowledge.
+                      </span>
+                    </label>
+                    {draft.allergenStatus !== "DONOR_CONFIRMED" && (
+                      <small className="field-hint">Leave unchecked if you’re unsure.</small>
+                    )}
+                  </div>
+                </div>
               </div>
               {error && <p className="form-error" role="alert">{error}</p>}
             </Card>
@@ -1507,16 +1282,18 @@ export function NewDonationPage() {
                 </label>
                 <label className="field-label">
                   Storage condition
-                  <select
-                    className="field-input"
-                    onChange={(event) => updateDraft("storageCondition", event.target.value)}
-                    value={draft.storageCondition}
-                  >
-                    <option>Refrigerated</option>
-                    <option>Hot-held</option>
-                    <option>Frozen</option>
-                    <option>Room temperature</option>
-                  </select>
+                  <div className="select-wrap">
+                    <select
+                      className="field-input"
+                      onChange={(event) => updateDraft("storageCondition", event.target.value)}
+                      value={draft.storageCondition}
+                    >
+                      <option>Refrigerated</option>
+                      <option>Hot-held</option>
+                      <option>Frozen</option>
+                      <option>Room temperature</option>
+                    </select>
+                  </div>
                 </label>
                 <label className="field-label">
                   Pickup available at
@@ -1543,168 +1320,34 @@ export function NewDonationPage() {
                 </span>
               </ReadinessNotice>
 
-              {apiMode ? (
-                <>
-                  <ReadinessNotice variant="info">
-                    <MapPin aria-hidden="true" size={18} />
+              <ReadinessNotice variant="info">
+                <MapPin aria-hidden="true" size={18} />
+                <span>
+                  <strong>Recipients and split are calculated by the backend.</strong>
+                  <span>
+                    Continue to preview eligible organizations, capacity, live route
+                    feasibility, and the donor cutoff. No offer starts during preview.
+                  </span>
+                </span>
+              </ReadinessNotice>
+              {planPreview && (
+                <ReadinessNotice variant={planPreview.status === "FULL" ? "success" : "warning"}>
+                  <MapPin aria-hidden="true" size={18} />
+                  <span>
+                    <strong>
+                      {planPreview.status === "FULL"
+                        ? "Backend preview covers the full quantity."
+                        : `${planPreview.unallocatedQuantity} meals remain unallocated.`}
+                    </strong>
                     <span>
-                      <strong>Recipients and split are calculated by the backend.</strong>
-                      <span>
-                        Continue to preview eligible recipients, capacity, route
-                        feasibility, and donor-cutoff checks. No offer starts during preview.
-                      </span>
+                      {planPreview.route
+                        ? `${planPreview.route.provider === "GOOGLE_ROUTES" ? "Google Routes" : "Route provider"} · ${Math.round((planPreview.route.durationSeconds ?? 0) / 60)} min · ${planPreview.route.distanceMeters ?? 0} m`
+                        : "The backend did not return a verified route."}
                     </span>
-                  </ReadinessNotice>
-                  {error && <p className="form-error" role="alert">{error}</p>}
-                </>
-              ) : (
-              <>
-              <div className="recipient-picker-heading">
-                <div>
-                  <h3>Choose recipients</h3>
-                  <p>Select up to two ready recipients; the allocation must total {draft.quantity} meals.</p>
-                </div>
-                <Badge
-                  aria-live="polite"
-                  variant={
-                    allocationIsBalanced
-                      ? "success"
-                      : remainingQuantity > 0
-                        ? "warning"
-                        : "danger"
-                  }
-                >
-                  <motion.span
-                    animate={{ opacity: 1, y: 0 }}
-                    initial={{ opacity: 0, y: reducedMotion ? 0 : 3 }}
-                    key={`${allocatedQuantity}-${draft.quantity}`}
-                    transition={transition}
-                  >
-                    {allocatedQuantity}
-                  </motion.span>
-                  {" "}/ {draft.quantity} allocated
-                </Badge>
-              </div>
-              <div className="recipient-candidate-list">
-                {recipientCandidates.map((candidate) => {
-                  const selectedIndex = selectedRecipients.indexOf(candidate.id)
-                  const selected = selectedIndex !== -1
-                  const maxAllocation = selected
-                    ? Math.max(
-                        1,
-                        draft.quantity -
-                          allocationQuantities.reduce(
-                            (total, quantity, index) =>
-                              index === selectedIndex ? total : total + quantity,
-                            0,
-                          ),
-                      )
-                    : draft.quantity
-                  return (
-                    <motion.div
-                      className={`recipient-candidate${selected ? " recipient-candidate--selected" : ""}${candidate.readiness === "BLOCKED" ? " recipient-candidate--blocked" : ""}`}
-                      key={candidate.id}
-                      layout
-                      transition={{
-                        layout: { duration: reducedMotion ? 0.12 : 0.2 },
-                      }}
-                    >
-                      <button
-                        aria-pressed={selected}
-                        className="candidate-select"
-                        disabled={candidate.readiness === "BLOCKED"}
-                        onClick={() => toggleRecipient(candidate)}
-                        type="button"
-                      >
-                        <span className={`candidate-avatar${candidate.readiness === "BLOCKED" ? " candidate-avatar--muted" : ""}`}>
-                          {candidate.initials}
-                        </span>
-                        <span className="candidate-main">
-                          <strong>{candidate.name}</strong>
-                          <span>
-                            {candidate.readiness === "READY"
-                              ? `${candidate.distance} · ${candidate.eta} estimated arrival · ${candidate.unmetNeed} meals needed`
-                              : candidate.reasons[0]}
-                          </span>
-                          {selected && (
-                            <span className="candidate-reasons">
-                              {candidate.reasons.slice(0, 3).join(" · ")}
-                            </span>
-                          )}
-                        </span>
-                        <span className={`readiness-indicator${candidate.readiness === "BLOCKED" ? " readiness-indicator--blocked" : ""}`}>
-                          {candidate.readiness === "READY" ? "READY" : "BLOCKED"}
-                        </span>
-                      </button>
-                      <AnimatePresence initial={false}>
-                        {selected && (
-                          <motion.label
-                            animate={{ opacity: 1, height: "auto", y: 0 }}
-                            className="allocation-control"
-                            exit={{ opacity: 0, height: 0, y: reducedMotion ? 0 : -3 }}
-                            initial={{ opacity: 0, height: 0, y: reducedMotion ? 0 : 3 }}
-                            key={`allocation-${candidate.id}`}
-                            transition={transition}
-                          >
-                            Allocate
-                            <Input
-                              aria-label={`Meals allocated to ${candidate.name}`}
-                              max={maxAllocation}
-                              min={1}
-                              onChange={(event) => {
-                                const entered = Math.max(
-                                  1,
-                                  Math.floor(Number(event.target.value) || 1),
-                                )
-                                setAllocationQuantities((current) => {
-                                  const otherQuantity = current.reduce(
-                                    (total, quantity, index) =>
-                                      index === selectedIndex ? total : total + quantity,
-                                    0,
-                                  )
-                                  const next = [...current]
-                                  next[selectedIndex] = Math.min(
-                                    entered,
-                                    Math.max(1, draft.quantity - otherQuantity),
-                                  )
-                                  return next
-                                })
-                              }}
-                              type="number"
-                              value={allocationQuantities[selectedIndex] ?? 0}
-                            />
-                            meals
-                          </motion.label>
-                        )}
-                      </AnimatePresence>
-                    </motion.div>
-                  )
-                })}
-              </div>
-              {!allocationIsBalanced && (
-                <p
-                  aria-live="polite"
-                  className="allocation-balance-message"
-                  role="status"
-                >
-                  {remainingQuantity > 0
-                    ? `${remainingQuantity} meals still need to be allocated.`
-                    : `${Math.abs(remainingQuantity)} meals exceed the donation quantity.`}
-                </p>
+                  </span>
+                </ReadinessNotice>
               )}
               {error && <p className="form-error" role="alert">{error}</p>}
-              <motion.div className="route-forecast" layout transition={{ layout: { duration: reducedMotion ? 0.12 : 0.2 } }}>
-                <span className="route-forecast-icon"><MapPin aria-hidden="true" size={17} /></span>
-                <span>
-                  <strong>Sample route estimate · {estimatedRouteMinutes} min total</strong>
-                  <small>
-                    {allocations.map((item) => `${item.recipient.name} ${item.recipient.eta}`).join(" → ")}
-                  </small>
-                </span>
-                <Badge variant={routeForecast.variant}>{routeForecast.label}</Badge>
-              </motion.div>
-              </>
-              )}
             </Card>
             </motion.div>
           )}
@@ -1732,12 +1375,10 @@ export function NewDonationPage() {
                   <h3>{draft.itemName}</h3>
                   <p>{draft.category} · {draft.quantity} meals</p>
                 </div>
-                <Badge variant={analysisApplied ? "neutral" : "outline"}>
+                <Badge variant={analysisResult ? "neutral" : "outline"}>
                   {analysisResult
-                    ? "Gemini suggestions · donor review"
-                    : analysisApplied
-                      ? "Sample suggestions · demo"
-                      : "Manual entry"}
+                    ? "AI draft · donor review"
+                    : "Manual entry"}
                 </Badge>
               </div>
               <div className="review-grid">
@@ -1752,71 +1393,38 @@ export function NewDonationPage() {
                 <h3>Rescue plan</h3>
                 <Badge
                   variant={
-                    apiMode && planPreview?.status === "PARTIAL"
+                    planPreview?.status === "PARTIAL"
                       ? "warning"
                       : "success"
                   }
                 >
-                  {apiMode
-                    ? `${planPreview?.status ?? "NOT CHECKED"} · backend`
-                    : "READY · sample"}
+                  `${planPreview?.status ?? "NOT CHECKED"}`
                 </Badge>
               </div>
               <div className="review-allocation-list">
-                {apiMode
-                  ? planPreview?.allocations.map((item) => {
-                      const mappedId =
-                        item.recipientId === "rcp-hope"
-                          ? "hope-shelter"
-                          : item.recipientId === "rcp-community"
-                            ? "community-kitchen"
-                            : item.recipientId === "rcp-pantry"
-                              ? "neighborhood-kitchen"
-                              : item.recipientId
-                      const candidate = recipientCandidates.find(
-                        (recipient) => recipient.id === mappedId,
-                      )
-                      return (
-                        <motion.div
-                          animate={{ opacity: 1, x: 0 }}
-                          className="review-allocation"
-                          initial={{ opacity: 0, x: reducedMotion ? 0 : -5 }}
-                          key={item.allocationId}
-                          layout
-                          transition={transition}
-                        >
-                          <span className="candidate-avatar">
-                            {candidate?.initials ?? item.recipientName.slice(0, 2)}
-                          </span>
-                          <span>
-                            <strong>{item.recipientName}</strong>
-                            <small>
-                              {item.reasonCodes.join(" · ").replaceAll("_", " ").toLowerCase()}
-                            </small>
-                          </span>
-                          <b>{item.quantity} meals</b>
-                        </motion.div>
-                      )
-                    })
-                  : allocations.map((item) => (
-                      <motion.div
-                        animate={{ opacity: 1, x: 0 }}
-                        className="review-allocation"
-                        initial={{ opacity: 0, x: reducedMotion ? 0 : -5 }}
-                        key={item.recipient.id}
-                        layout
-                        transition={transition}
-                      >
-                        <span className="candidate-avatar">{item.recipient.initials}</span>
-                        <span>
-                          <strong>{item.recipient.name}</strong>
-                          <small>{item.recipient.eta} · {item.recipient.distance} away</small>
-                        </span>
-                        <b>{item.quantity} meals</b>
-                      </motion.div>
-                    ))}
+                {planPreview?.allocations.map((item) => (
+                  <motion.div
+                    animate={{ opacity: 1, x: 0 }}
+                    className="review-allocation"
+                    initial={{ opacity: 0, x: reducedMotion ? 0 : -5 }}
+                    key={item.allocationId}
+                    layout
+                    transition={transition}
+                  >
+                    <span className="candidate-avatar">
+                      {item.recipientName.slice(0, 2).toUpperCase()}
+                    </span>
+                    <span>
+                      <strong>{item.recipientName}</strong>
+                      <small>
+                        {item.reasonCodes.join(" · ").replaceAll("_", " ").toLowerCase()}
+                      </small>
+                    </span>
+                    <b>{item.quantity} meals</b>
+                  </motion.div>
+                ))}
               </div>
-              {apiMode && planPreview && (
+              {planPreview && (
                 <>
                   <ReadinessNotice variant={planPreview.status === "FULL" ? "success" : "warning"}>
                     <MapPin aria-hidden="true" size={18} />
@@ -1910,10 +1518,6 @@ export function NewDonationPage() {
             <h3>A feasible rescue, first</h3>
             <p>Only recipients with compatible need, capacity, hours, and arrival time can be offered food automatically.</p>
           </Card>
-          <div className="demo-side-note">
-            <Sparkles aria-hidden="true" size={16} />
-            <span><strong>Prototype mode</strong>Details, offers, and impact are stored only in this browser session.</span>
-          </div>
         </aside>
       </div>
       <AnimatePresence>
@@ -2093,19 +1697,18 @@ function AllocationProgress({ donation }: { donation: DemoDonation }) {
 
 export function TrackDonationPage() {
   const { donationId } = useParams()
-  const { apiMode, donations } = useDemoStore()
+  const { donations } = useDemoStore()
   const reducedMotion = useReducedMotion() ?? false
   const transition = { duration: reducedMotion ? 0.12 : 0.2, ease: "easeOut" as const }
   const donation = donations.find((item) => item.id === donationId)
   const active = donation ? getCurrentAllocation(donation) : undefined
   const confirmed = donation ? getConfirmedQuantity(donation) : 0
   const nextAction = donation ? getDonorNextAction(donation) : undefined
-  const fallbackAvailable = Boolean(active?.fallbackRecipientName)
 
   if (!donation) {
     return (
       <div className="not-found-page">
-        <PageHeading description="This donation may have been reset with the demo data." title="Donation not found" />
+        <PageHeading description="Check the donation link or reload your organization records." title="Donation not found" />
         <PrimaryLink to="/donor/donations">Back to donations</PrimaryLink>
       </div>
     )
@@ -2124,13 +1727,13 @@ export function TrackDonationPage() {
           <Card className="panel tracking-panel">
             <div className="panel-heading">
               <h2>Rescue timeline</h2>
-              <Badge variant="neutral">{apiMode ? "BACKEND DEMO" : "SAMPLE DATA"}</Badge>
+              <Badge variant="neutral">Live rescue events</Badge>
             </div>
             <div className="tracking-panel-content">
               <RescueTimeline status={donation.status} />
               <div className="tracking-event-list">
-                {apiMode ? (
-                  donation.events?.map((event) => {
+                {donation.events?.length ? (
+                  donation.events.map((event) => {
                     const isReceipt = event.type === "RECEIPT_CONFIRMED"
                     const isActive = ["OFFER_STARTED", "OFFER_RELAYED"].includes(
                       event.type,
@@ -2165,82 +1768,7 @@ export function TrackDonationPage() {
                     )
                   })
                 ) : (
-                <>
-                <div className="tracking-event tracking-event--done">
-                  <span className="event-marker"><Check aria-hidden="true" size={13} /></span>
-                  <div><strong>Donation details confirmed</strong><small>{donation.quantity} {donation.unit} · donor-entered cutoff: {donation.usableUntil}</small></div>
-                  <small>{donation.createdAt}</small>
-                </div>
-                <div className="tracking-event tracking-event--done">
-                  <span className="event-marker"><Check aria-hidden="true" size={13} /></span>
-                  <div><strong>Readiness checked</strong><small>Feasible route · allocated quantity: {donation.quantity} meals</small></div>
-                  <small>Demo route</small>
-                </div>
-                <AnimatePresence initial={false}>
-                {donation.status === "RELAYED" && (
-                  <motion.div
-                    animate={{ opacity: 1, x: 0 }}
-                    className="tracking-event tracking-event--current"
-                    exit={{ opacity: 0, x: reducedMotion ? 0 : -6 }}
-                    initial={{ opacity: 0, x: reducedMotion ? 0 : 6 }}
-                    key="relay-event"
-                    transition={transition}
-                  >
-                    <span className="event-marker"><ArrowRight aria-hidden="true" size={13} /></span>
-                    <div><strong>Offer relayed to next recipient</strong><small>The first recipient declined; the demo moved the offer to the fallback.</small></div>
-                    <small>Now</small>
-                  </motion.div>
-                )}
-                {active && (
-                  <motion.div
-                    animate={{ opacity: 1, x: 0 }}
-                    className="tracking-event tracking-event--current"
-                    exit={{ opacity: 0, x: reducedMotion ? 0 : -6 }}
-                    initial={{ opacity: 0, x: reducedMotion ? 0 : 6 }}
-                    key={`active-${active.recipientId}-${donation.status}`}
-                    transition={transition}
-                  >
-                    <span className="event-marker"><Clock3 aria-hidden="true" size={13} /></span>
-                    <div><strong>{donation.status === "ACCEPTED" ? "Recipient accepted" : "Waiting for recipient response"}</strong><small>{active.recipientName} · {active.quantity} meals · estimated arrival {active.eta}</small></div>
-                    <small>
-                      {donation.status === "ACCEPTED"
-                        ? "Handoff pending"
-                        : apiMode && donation.responseWindowEndsAt
-                          ? `Respond by ${new Date(donation.responseWindowEndsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
-                          : "Sample response window · not live"}
-                    </small>
-                  </motion.div>
-                )}
-                {(donation.status === "RECEIVED" || donation.status === "PARTIALLY_RECEIVED") && (
-                  <motion.div
-                    animate={{ opacity: 1, x: 0 }}
-                    className="tracking-event tracking-event--received"
-                    exit={{ opacity: 0, x: reducedMotion ? 0 : -6 }}
-                    initial={{ opacity: 0, x: reducedMotion ? 0 : 6 }}
-                    key="receipt-event"
-                    transition={transition}
-                  >
-                    <span className="event-marker"><Check aria-hidden="true" size={13} /></span>
-                    <div><strong>Recipient-confirmed receipt</strong><small>{confirmed} meals confirmed received. Only this amount counts toward impact.</small></div>
-                    <small>Complete</small>
-                  </motion.div>
-                )}
-                {donation.status === "UNCLAIMED" && (
-                  <motion.div
-                    animate={{ opacity: 1, x: 0 }}
-                    className="tracking-event tracking-event--blocked"
-                    exit={{ opacity: 0, x: reducedMotion ? 0 : -6 }}
-                    initial={{ opacity: 0, x: reducedMotion ? 0 : 6 }}
-                    key="unclaimed-event"
-                    transition={transition}
-                  >
-                    <span className="event-marker"><AlertTriangle aria-hidden="true" size={13} /></span>
-                    <div><strong>No active recipient</strong><small>All available demo recipients declined or the relay ended.</small></div>
-                    <small>Action needed</small>
-                  </motion.div>
-                )}
-                </AnimatePresence>
-                </>
+                  <p className="panel-empty-note">No rescue events have been recorded yet.</p>
                 )}
               </div>
               {nextAction && (
@@ -2295,27 +1823,41 @@ export function TrackDonationPage() {
                       <small>Share this code with {active.recipientName} at handoff.</small>
                     </motion.div>
                   ) : (
-                    <div className="countdown-box">
-                      <Clock3 aria-hidden="true" size={17} />
-                      <span>
-                        {apiMode && donation.responseWindowEndsAt ? (
-                          <>
-                            <strong>Response due by</strong>
-                            <small>
-                              {new Date(donation.responseWindowEndsAt).toLocaleTimeString([], {
-                                hour: "numeric",
-                                minute: "2-digit",
-                              })}
-                            </small>
-                          </>
-                        ) : (
-                          <>
-                            <strong>Sample response window</strong>
-                            <small>Illustrative only · not a live timer</small>
-                          </>
-                        )}
-                      </span>
-                    </div>
+                    <>
+                      <div className="countdown-box">
+                        <Clock3 aria-hidden="true" size={17} />
+                        <span>
+                          {donation.responseWindowEndsAt ? (
+                            <>
+                              <strong>Response due by</strong>
+                              <small>
+                                {new Date(donation.responseWindowEndsAt).toLocaleTimeString([], {
+                                  hour: "numeric",
+                                  minute: "2-digit",
+                                })}
+                              </small>
+                            </>
+                          ) : (
+                            <>
+                              <strong>Response deadline unavailable</strong>
+                              <small>Refresh the donation or contact the recipient.</small>
+                            </>
+                          )}
+                        </span>
+                      </div>
+                      {!donation.expiryScheduled && (
+                        <ReadinessNotice variant="warning">
+                          <Clock3 aria-hidden="true" size={16} />
+                          <span>
+                            <strong>Automatic timeout relay is unavailable locally.</strong>
+                            <span>
+                              The first response attempt after the deadline advances
+                              the relay to the next eligible recipient.
+                            </span>
+                          </span>
+                        </ReadinessNotice>
+                      )}
+                    </>
                   )}
                 </motion.div>
               ) : (
@@ -2338,16 +1880,20 @@ export function TrackDonationPage() {
             <h3>{donation.usableUntil}</h3>
             <p>Set by the donor. Route estimates do not extend or certify this time.</p>
           </Card>
-          <ReadinessNotice variant={fallbackAvailable ? "warning" : "info"}>
+          <ReadinessNotice variant={active?.fallbackRecipientName ? "warning" : "info"}>
             <Clock3 aria-hidden="true" size={18} />
             <span>
               <strong>Sequential rescue relay</strong>
-              <span>Only one active offer runs at a time. If declined, the system follows the planned fallback.</span>
+              <span>
+                {active?.fallbackRecipientName
+                  ? `Only one offer runs at a time. If declined, the offer can continue to ${active.fallbackRecipientName}.`
+                  : "Only one offer runs at a time; each next step is determined by current eligibility and recorded responses."}
+              </span>
             </span>
           </ReadinessNotice>
           <div className="cross-role-link">
             <strong>Testing the recipient journey?</strong>
-            <p>Open the separate demo role from the entry screen; there is no in-app role switch.</p>
+            <p>Sign in with an account registered for the recipient organization.</p>
             <Link className="text-link" to="/">
               Return to role entry <ArrowRight aria-hidden="true" size={14} />
             </Link>

@@ -186,7 +186,19 @@ class OfferService:
         )
         created_offer = self.repository.create_offer(offer)
         try:
-            self._schedule_expiration(created_offer)
+            expiry_scheduled = self._schedule_expiration(created_offer)
+            if expiry_scheduled:
+                updated_offer = self.repository.update_offer(
+                    created_offer.offer_id,
+                    expiry_scheduled=True,
+                )
+                if updated_offer is None:
+                    raise errors.SecondServeError(
+                        500,
+                        "OFFER_EXPIRY_STATUS_SAVE_FAILED",
+                        "The offer expiry status could not be saved.",
+                    )
+                created_offer = updated_offer
         except Exception:
             self.repository.update_offer(
                 created_offer.offer_id,
@@ -197,14 +209,14 @@ class OfferService:
                 status=AllocationStatus.PLANNED,
                 handoff_code_hash=None,
             )
-            self.repository.handoff_codes.pop(allocation.allocation_id, None)
+            self.repository.delete_handoff_code(allocation.allocation_id)
             raise
         return created_offer, code
 
-    def _schedule_expiration(self, offer: Offer) -> None:
+    def _schedule_expiration(self, offer: Offer) -> bool:
         settings = get_settings()
         if settings.demo_mode:
-            return
+            return False
         required = {
             "cloud_tasks_project_id": settings.cloud_tasks_project_id,
             "cloud_tasks_location": settings.cloud_tasks_location,
@@ -213,6 +225,13 @@ class OfferService:
         }
         missing = [name for name, value in required.items() if not value]
         if missing:
+            if settings.environment == "local":
+                logger.warning(
+                    "Offer %s has no automatic expiry callback in local mode; "
+                    "responses after the deadline will trigger expiry handling",
+                    offer.offer_id,
+                )
+                return False
             raise errors.SecondServeError(
                 503,
                 "CLOUD_TASKS_NOT_CONFIGURED",
@@ -243,8 +262,10 @@ class OfferService:
                 "schedule_time": offer.expires_at,
             }
             client.create_task(request={"parent": queue_path, "task": task})
+            return True
         except AlreadyExists:
             logger.info("Expiry task already exists for offer %s", offer.offer_id)
+            return True
         except (GoogleAPICallError, GoogleAuthError) as exc:
             logger.exception("Could not schedule expiry for offer %s", offer.offer_id)
             raise errors.SecondServeError(

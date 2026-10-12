@@ -47,6 +47,7 @@ class DonationDetailResponse(DonationResponse):
     events: list[Event] = Field(default_factory=list)
     current_offer: Offer | None = None
     handoff_code: str | None = None
+    donor_organization_name: str
 
 
 class DonationUpdateRequest(BaseModel):

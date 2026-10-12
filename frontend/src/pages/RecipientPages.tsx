@@ -23,37 +23,26 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import {
-  recipientCandidates,
   type DemoDonation,
 } from "@/lib/demo-data"
 import { useDemoStore } from "@/lib/demo-context"
-
-const recipientAccounts: Record<
-  string,
-  { name: string; initials: string; candidateId: string }
-> = {
-  "hope-shelter": {
-    name: "Hope Shelter",
-    initials: "HS",
-    candidateId: "hope-shelter",
-  },
-  "community-kitchen": {
-    name: "Community Kitchen",
-    initials: "CK",
-    candidateId: "community-kitchen",
-  },
-  "neighborhood-kitchen": {
-    name: "Neighborhood Kitchen",
-    initials: "NK",
-    candidateId: "neighborhood-kitchen",
-  },
-}
+import { useAuth } from "@/lib/auth-context"
 
 function useRecipientAccount() {
-  const { recipientId = "hope-shelter" } = useParams()
+  const { recipientId = "" } = useParams()
+  const { profile } = useAuth()
+  const name = profile?.organizationName ?? "Recipient organization"
   return {
     id: recipientId,
-    ...(recipientAccounts[recipientId] ?? recipientAccounts["hope-shelter"]),
+    name,
+    initials: name
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((part) => part[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase(),
+    candidateId: profile?.recipientId ?? "",
   }
 }
 
@@ -91,7 +80,7 @@ function RecipientOfferCard({ donation }: { donation: DemoDonation }) {
       item.recipientId === account.candidateId &&
       (item.status === "OFFERING" || item.status === "ACCEPTED"),
   )
-  const { apiMode, respondToOffer, submitReceipt } = useDemoStore()
+  const { respondToOffer, submitReceipt } = useDemoStore()
   const [handoffCode, setHandoffCode] = useState("")
   const [quantityReceived, setQuantityReceived] = useState(
     allocation?.quantity ?? 1,
@@ -117,8 +106,8 @@ function RecipientOfferCard({ donation }: { donation: DemoDonation }) {
   }
 
   async function confirmReceipt() {
-    if (!apiMode && handoffCode.trim() !== donation.handoffCode) {
-      setError("That code doesn't match. Confirm it with the donor at handoff.")
+    if (handoffCode.trim().length !== 6) {
+      setError("Enter the six-digit code shared by the donor at pickup.")
       return
     }
     if (
@@ -159,11 +148,9 @@ function RecipientOfferCard({ donation }: { donation: DemoDonation }) {
       <div className="offer-card-top">
         <span className="offer-food-icon"><Utensils aria-hidden="true" size={20} /></span>
         <div>
-          <span className="offer-eyebrow">
-            FOOD RESCUE OFFER · {apiMode ? "BACKEND DEMO" : "SAMPLE"}
-          </span>
+          <span className="offer-eyebrow">FOOD RESCUE OFFER</span>
           <h2>{donation.itemName}</h2>
-          <p>{donation.category} · Offered by Green Leaf Kitchen</p>
+          <p>{donation.category} · Offered by {donation.donorName ?? "Food business"}</p>
         </div>
         <Badge variant={isAccepted ? "success" : "warning"}>
           {isAccepted ? "Accepted" : "Response needed"}
@@ -181,6 +168,18 @@ function RecipientOfferCard({ donation }: { donation: DemoDonation }) {
           <span>Check your current capacity and estimated arrival; decline if the plan has changed.</span>
         </span>
       </ReadinessNotice>
+      {!donation.expiryScheduled && !isAccepted && (
+        <ReadinessNotice variant="warning">
+          <Clock3 aria-hidden="true" size={17} />
+          <span>
+            <strong>Automatic timeout relay is unavailable locally.</strong>
+            <span>
+              Respond before the displayed deadline; the first response attempt
+              after expiry advances the relay.
+            </span>
+          </span>
+        </ReadinessNotice>
+      )}
 
       <AnimatePresence initial={false} mode="wait">
       {!isAccepted ? (
@@ -195,7 +194,7 @@ function RecipientOfferCard({ donation }: { donation: DemoDonation }) {
           <div className="offer-window-note">
             <Clock3 aria-hidden="true" size={16} />
             <span>
-              {apiMode && donation.responseWindowEndsAt ? (
+              {donation.responseWindowEndsAt ? (
                 <>
                   <strong>Response due by</strong>
                   <small>
@@ -207,8 +206,8 @@ function RecipientOfferCard({ donation }: { donation: DemoDonation }) {
                 </>
               ) : (
                 <>
-                  <strong>Sample response window</strong>
-                  <small>Illustrative only · not a live timer</small>
+                  <strong>Response deadline unavailable</strong>
+                  <small>Refresh the offer or contact the donor.</small>
                 </>
               )}
             </span>
@@ -301,7 +300,7 @@ function RecipientOfferCard({ donation }: { donation: DemoDonation }) {
 
 export function RecipientOffersPage() {
   const account = useRecipientAccount()
-  const { apiMode, donations } = useDemoStore()
+  const { donations } = useDemoStore()
   const matchingDonations = donations.filter((donation) =>
     donation.allocations.some(
       (allocation) =>
@@ -349,9 +348,7 @@ export function RecipientOffersPage() {
             <p>
               {acceptedCount > 0
                 ? "Your response is recorded. Check Received for confirmed handoffs."
-                : apiMode
-                  ? "There are no backend offers awaiting this organization right now."
-                  : "There are no sample offers awaiting this organization right now."}
+                : "There are no offers awaiting this organization right now."}
             </p>
             <Link className="text-link" to={`/recipient/${account.id}/received`}>
               View received food <ArrowRight aria-hidden="true" size={14} />
@@ -359,22 +356,14 @@ export function RecipientOffersPage() {
           </div>
         </Card>
       )}
-      <p className="demo-disclaimer">
-        {apiMode
-          ? "Backend API mode uses seeded demo identities and organizations; it is not connected to production accounts."
-          : "This role is a seeded demo account. Offers and responses are not connected to a live organization."}
-      </p>
     </>
   )
 }
 
 export function RecipientCapacityPage() {
   const account = useRecipientAccount()
-  const { apiMode, recipientProfile } = useDemoStore()
-  const candidate = recipientCandidates.find(
-    (item) => item.id === account.candidateId,
-  )!
-  if (apiMode && !recipientProfile) {
+  const { recipientProfile } = useDemoStore()
+  if (!recipientProfile) {
     return (
       <>
         <PageHeading
@@ -386,44 +375,33 @@ export function RecipientCapacityPage() {
           <span>
             <strong>Recipient profile is unavailable.</strong>
             <span>
-              Check the backend profile setup; sample profile values are not substituted in API mode.
+              Check your organization profile or reload this page.
             </span>
           </span>
         </ReadinessNotice>
       </>
     )
   }
-  const acceptedCategories = apiMode
-    ? (recipientProfile?.acceptedCategories ?? []).map(categoryLabel)
-    : ["Prepared meals", "Bakery", "Produce"]
-  const restrictions = apiMode
-    ? recipientProfile?.allergenRestrictions ?? []
-    : []
-  const hoursText = apiMode
-    ? formatRecipientHours(
-        recipientProfile?.hours ?? {},
-        recipientProfile?.timezone ?? "organization time",
-      )
-    : `Open today until ${candidate.openUntil}`
+  const acceptedCategories = recipientProfile.acceptedCategories.map(categoryLabel)
+  const restrictions = recipientProfile.allergenRestrictions
+  const hoursText = formatRecipientHours(
+    recipientProfile.hours,
+    recipientProfile.timezone,
+  )
 
   return (
     <>
       <PageHeading
-        description={
-          apiMode
-            ? "Recipient capacity and needs reported by the configured backend."
-            : "Sample profile used to explain how readiness decisions are made."
-        }
+        description="Recipient capacity and needs reported by your organization."
         title="Capacity & needs"
       />
       <ReadinessNotice variant="warning">
         <Info aria-hidden="true" size={18} />
         <span>
-          <strong>{apiMode ? "Backend demo profile" : "Demo profile only"}</strong>
+          <strong>Organization profile</strong>
           <span>
-            {apiMode
-              ? "These values are served by the local in-memory API and are not saved to a production database."
-              : "These values are synthetic and are not editable or published to real donors."}
+            Keep capacity, operating hours, accepted categories, and restrictions
+            up to date to support accurate readiness checks.
           </span>
         </span>
       </ReadinessNotice>
@@ -432,17 +410,15 @@ export function RecipientCapacityPage() {
           <div className="recipient-profile-heading">
             <span className="candidate-avatar candidate-avatar--large">{account.initials}</span>
             <div>
-              <span className="side-card-kicker">
-                {apiMode ? "BACKEND RECIPIENT" : "SAMPLE RECIPIENT"}
-              </span>
+              <span className="side-card-kicker">RECIPIENT ORGANIZATION</span>
               <h2>{account.name}</h2>
               <p>Community organization · {hoursText}</p>
             </div>
           </div>
           <div className="capacity-stat-grid">
-            <div><small>Meal capacity</small><strong>{apiMode ? recipientProfile?.capacity : candidate.capacity}</strong></div>
-            <div><small>Current unmet need</small><strong>{apiMode ? recipientProfile?.unmetDemand : candidate.unmetNeed}</strong></div>
-            <div><small>Route distance</small><strong>{apiMode ? "Calculated per donation" : candidate.distance}</strong></div>
+            <div><small>Meal capacity</small><strong>{recipientProfile.capacity}</strong></div>
+            <div><small>Current unmet need</small><strong>{recipientProfile.unmetDemand}</strong></div>
+            <div><small>Route distance</small><strong>Calculated per donation</strong></div>
           </div>
           <div className="panel-subheading"><h3>Accepted food categories</h3></div>
           <div className="tag-options">
@@ -454,7 +430,7 @@ export function RecipientCapacityPage() {
           <p className="body-copy">
             {restrictions.length > 0
               ? `Allergen exclusions: ${restrictions.join(", ")}.`
-              : "No seeded allergen exclusions. Unknown donor allergen information is not treated as compatible."}
+              : "No allergen exclusions recorded. Unknown donor allergen information is not treated as compatible."}
           </p>
         </Card>
         <Card className="panel readiness-explainer">
@@ -569,7 +545,7 @@ export function RecipientReceivedPage() {
               <CheckCircle2 aria-hidden="true" size={20} />
             </motion.span>
             <span>
-              <strong>Receipt confirmed in this demo.</strong>
+              <strong>Receipt confirmed.</strong>
               <span>{receiptConfirmation.quantity} meals of {receiptConfirmation.itemName} now count as recipient-confirmed.</span>
             </span>
           </motion.div>
@@ -607,14 +583,13 @@ export function RecipientReceivedPage() {
           </div>
         )}
       </Card>
-      <p className="demo-disclaimer">Historical example rows are synthetic sample data.</p>
     </>
   )
 }
 
 export function RecipientImpactPage() {
   const account = useRecipientAccount()
-  const { apiMode, donations, impactSummary, recipientProfile } = useDemoStore()
+  const { donations, impactSummary, recipientProfile } = useDemoStore()
   const confirmed = donations.reduce(
     (total, donation) =>
       total +
@@ -628,11 +603,7 @@ export function RecipientImpactPage() {
       ),
     0,
   )
-  const historicalReceived = apiMode
-    ? impactSummary?.confirmedQuantity ?? 0
-    : account.candidateId === "hope-shelter"
-      ? 248
-      : 176
+  const confirmedTotal = impactSummary?.confirmedQuantity ?? confirmed
 
   return (
     <>
@@ -650,29 +621,21 @@ export function RecipientImpactPage() {
       <div className="metrics-grid impact-metrics">
         <MetricCard
           icon={<CheckCircle2 aria-hidden="true" size={17} />}
-          note={apiMode ? "Backend-confirmed receipts" : "Across seeded history and this session"}
+          note="Recipient-confirmed handoffs"
           title="Meals received"
-          value={(historicalReceived + confirmed).toLocaleString()}
+          value={confirmedTotal.toLocaleString()}
         />
         <MetricCard
           icon={<Utensils aria-hidden="true" size={17} />}
-          note="Synthetic history only"
+          note="Confirmed receipt records"
           title="Completed rescues"
-          value={String(
-            apiMode
-              ? impactSummary?.receiptsCount ?? 0
-              : account.candidateId === "hope-shelter"
-                ? 18
-                : 11,
-          )}
+          value={String(impactSummary?.receiptsCount ?? 0)}
         />
         <MetricCard
           icon={<MapPin aria-hidden="true" size={17} />}
-          note="Based on this demo profile"
+          note="Current recipient profile"
           title="Active unmet need"
-          value={`${apiMode
-            ? recipientProfile?.unmetDemand ?? 0
-            : recipientCandidates.find((item) => item.id === account.candidateId)?.unmetNeed ?? 0} meals`}
+          value={`${recipientProfile?.unmetDemand ?? 0} meals`}
         />
       </div>
       <Card className="panel impact-receipt-table">
@@ -690,9 +653,6 @@ export function RecipientImpactPage() {
           </p>
         )}
       </Card>
-      <p className="demo-disclaimer">
-        Seeded historical counts are illustrative. Environmental savings are not estimated.
-      </p>
     </>
   )
 }

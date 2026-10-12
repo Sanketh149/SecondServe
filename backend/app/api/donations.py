@@ -162,6 +162,10 @@ def create_rescue_plan(
         raise errors.SecondServeError(404, "DONATION_NOT_FOUND", "The donation was not found.")
     if donation.donor_organization_id != user.organization_id:
         raise errors.SecondServeError(403, "FORBIDDEN", "The donation is not owned by this donor.")
+    if donation.plan_id:
+        existing_plan = repository.get_plan(donation.plan_id)
+        if existing_plan is not None:
+            return existing_plan
     return PlanService(repository).create(donation, user.organization_id)
 
 
@@ -221,6 +225,7 @@ def get_donation(
         None,
     )
     plan = repository.get_plan(donation.plan_id) if donation.plan_id else None
+    donor_organization = repository.get_organization(donation.donor_organization_id)
     handoff_code = None
     if user.role.value == "donor":
         handoff_code = next(
@@ -239,4 +244,7 @@ def get_donation(
         events=sorted(repository.list_events(donation_id), key=lambda event: event.occurred_at),
         current_offer=current_offer,
         handoff_code=handoff_code,
+        donor_organization_name=(
+            donor_organization.name if donor_organization else "Food donor"
+        ),
     )

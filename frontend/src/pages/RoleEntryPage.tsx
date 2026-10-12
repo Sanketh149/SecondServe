@@ -3,13 +3,36 @@ import {
   CheckCircle2,
   HeartHandshake,
   Leaf,
+  MapPin,
   ShieldCheck,
+  TrendingUp,
   Utensils,
 } from "lucide-react"
-import { Link } from "react-router-dom"
+import { Link, Navigate } from "react-router-dom"
+import { useAuth } from "@/lib/auth-context"
 import { Button } from "@/components/ui/button"
+import { BrandedLoader } from "@/components/BrandedLoader"
 
 export function RoleEntryPage() {
+  const { loading, profile, user } = useAuth()
+  if (loading) {
+    return (
+      <BrandedLoader
+        title="Checking your account"
+        description="We’re securely reconnecting you to your SecondServe workspace."
+      />
+    )
+  }
+  if (user && profile?.role && profile.organizationId) {
+    const destination = profile.role === "donor"
+      ? "/donor/dashboard"
+      : `/recipient/${profile.organizationId}/offers`
+    return <Navigate replace to={destination} />
+  }
+  if (user) {
+    return <Navigate replace to="/onboarding" />
+  }
+
   return (
     <main className="entry-page">
       <header className="entry-header">
@@ -17,105 +40,100 @@ export function RoleEntryPage() {
           <span className="brand-mark"><Leaf aria-hidden="true" size={19} /></span>
           <span className="brand-name">SecondServe</span>
         </Link>
-        <span className="entry-demo-pill"><span className="demo-dot" /> Interactive product demo</span>
       </header>
       <section className="entry-hero">
         <div className="entry-copy">
-          <div className="entry-kicker"><Leaf aria-hidden="true" size={15} /> FOOD RESCUE, MADE FEASIBLE</div>
           <h1>Good food deserves a <em>second serve.</em></h1>
           <p>
-            A clear path from surplus to need: review the food, plan a feasible rescue,
-            and count only what recipients confirm.
+            Review surplus food, plan a feasible rescue, and verify handoffs with
+            a secure one-time code.
           </p>
-          <div className="entry-trust-row">
-            <span><CheckCircle2 aria-hidden="true" size={16} /> Donor-confirmed details</span>
-            <span><CheckCircle2 aria-hidden="true" size={16} /> Feasibility before offers</span>
-            <span><CheckCircle2 aria-hidden="true" size={16} /> Verified handoffs</span>
+          <div className="entry-auth-actions">
+            <Button asChild>
+              <Link to="/create-account">Create account <ArrowRight aria-hidden="true" size={16} /></Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link to="/sign-in">Sign in</Link>
+            </Button>
           </div>
+          <p className="entry-auth-note">
+            Choose donor to list surplus food or recipient to share community needs.
+          </p>
         </div>
-        <div className="entry-illustration" aria-label="A sample food rescue journey">
-          <div className="illustration-label">A SIMPLE RESCUE JOURNEY</div>
+        <div className="entry-illustration" aria-label="Food rescue process">
+          <div className="illustration-label">A CLEAR RESCUE JOURNEY</div>
           <div className="illustration-flow">
             <div className="illustration-node illustration-node--food">
               <span><Utensils aria-hidden="true" size={22} /></span>
               <strong>Surplus food</strong>
-              <small>32 meals · ready today</small>
+              <small>Donor-reviewed details</small>
             </div>
-            <div className="illustration-route"><span /><small>12 min</small><span /></div>
+            <div className="illustration-route"><span /><small>Feasible route</small><span /></div>
             <div className="illustration-node illustration-node--recipient">
               <span><HeartHandshake aria-hidden="true" size={22} /></span>
-              <strong>Hope Shelter</strong>
-              <small>Capacity confirmed</small>
+              <strong>Community need</strong>
+              <small>Capacity checked</small>
             </div>
           </div>
           <div className="illustration-receipt">
-            <ShieldCheck aria-hidden="true" size={17} />
-            <span><strong>24 meals confirmed received</strong><small>Impact updates after handoff</small></span>
+            <CheckCircle2 aria-hidden="true" size={17} />
+            <span><strong>Code verified</strong><small>One-time passcode confirms pickup</small></span>
             <CheckCircle2 aria-hidden="true" className="illustration-check" size={18} />
           </div>
           <div className="illustration-background illustration-background--one" />
           <div className="illustration-background illustration-background--two" />
         </div>
       </section>
-
-      <section className="role-select-section">
-        <div className="role-heading">
-          <span className="role-heading-kicker">CHOOSE YOUR WORKSPACE</span>
-          <h2>How are you joining today?</h2>
-          <p>Each workspace has its own role-specific screens and navigation.</p>
+      <section aria-labelledby="entry-process-title" className="entry-process">
+        <div className="entry-process-heading">
+          <span className="entry-section-kicker">THE SECOND SERVE ROUTE</span>
+          <h2 id="entry-process-title">From surplus patterns to confirmed handoffs.</h2>
         </div>
-        <div className="role-card-grid">
-          <article className="role-card">
-            <span className="role-card-icon role-card-icon--donor"><Utensils aria-hidden="true" size={20} /></span>
-            <div>
-              <span className="role-label">FOR FOOD BUSINESSES</span>
-              <h3>I have surplus food</h3>
-              <p>Create a Food Passport, check feasible recipients, and follow the rescue through receipt.</p>
-            </div>
-            <Button asChild className="role-card-action">
-              <Link to="/donor/dashboard">
-                Enter donor demo <ArrowRight aria-hidden="true" size={16} />
-              </Link>
-            </Button>
+        <div className="entry-route-map">
+          <svg aria-hidden="true" preserveAspectRatio="none" viewBox="0 0 1200 400">
+          <path
+            className="entry-route-road"
+            d="M 100 100 C 220 100 260 305 400 305 S 570 100 720 100 S 920 305 1080 305"
+          />
+          <path
+            className="entry-route-centerline"
+            d="M 100 100 C 220 100 260 305 400 305 S 570 100 720 100 S 920 305 1080 305"
+          />
+          </svg>
+          <article className="entry-route-stop entry-route-stop--forecast">
+          <span className="entry-route-marker entry-route-marker--forecast"><TrendingUp aria-hidden="true" size={18} /></span>
+          <div className="entry-route-label">
+            <span className="entry-route-kicker">SURPLUS FORECAST</span>
+            <h3>Plan ahead</h3>
+            <p>Weekday forecasts help donors anticipate surplus and plan ahead.</p>
+          </div>
           </article>
-          <article className="role-card">
-            <span className="role-card-icon role-card-icon--recipient"><HeartHandshake aria-hidden="true" size={20} /></span>
-            <div>
-              <span className="role-label">FOR COMMUNITY ORGANIZATIONS</span>
-              <h3>I receive food</h3>
-              <p>Review offers against your capacity, respond, and confirm food received.</p>
-            </div>
-            <div className="recipient-demo-accounts">
-              <Button asChild className="role-card-action" variant="outline">
-                <Link to="/recipient/hope-shelter/offers">
-                  Hope Shelter demo <ArrowRight aria-hidden="true" size={16} />
-                </Link>
-              </Button>
-              <Button asChild className="role-card-action role-card-action--secondary" variant="outline">
-                <Link to="/recipient/community-kitchen/offers">
-                  Community Kitchen demo <ArrowRight aria-hidden="true" size={16} />
-                </Link>
-              </Button>
-              <Button asChild className="role-card-action role-card-action--secondary" variant="outline">
-                <Link to="/recipient/neighborhood-kitchen/offers">
-                  Neighborhood Kitchen demo <ArrowRight aria-hidden="true" size={16} />
-                </Link>
-              </Button>
-            </div>
+          <article className="entry-route-stop entry-route-stop--review">
+          <span className="entry-route-marker"><Utensils aria-hidden="true" size={18} /></span>
+          <div className="entry-route-label">
+            <span className="entry-route-kicker">DONOR REVIEW</span>
+            <h3>Confirm the food</h3>
+            <p>AI organizes visible details; donors verify quantity, food, and pickup cutoff.</p>
+          </div>
           </article>
-        </div>
-        <div className="demo-boundary-note">
-          <ShieldCheck aria-hidden="true" size={17} />
-          <span>
-            <strong>Prototype access only.</strong> These paths use synthetic sample data and browser-only state. Authentication and live APIs are not connected.
-          </span>
+          <article className="entry-route-stop entry-route-stop--feasibility">
+          <span className="entry-route-marker entry-route-marker--route"><MapPin aria-hidden="true" size={18} /></span>
+          <div className="entry-route-label">
+            <span className="entry-route-kicker">FEASIBILITY CHECK</span>
+            <h3>Find the right route</h3>
+            <p>Capacity, food fit, open hours, route, and cutoff are checked before offers.</p>
+          </div>
+          </article>
+          <article className="entry-route-stop entry-route-stop--receipt">
+          <span className="entry-route-marker entry-route-marker--receipt"><ShieldCheck aria-hidden="true" size={18} /></span>
+          <div className="entry-route-label">
+            <span className="entry-route-kicker">ONE-TIME CODE</span>
+            <h3>Verify the handoff</h3>
+            <p>The recipient confirms pickup using the donor’s single-use six-digit code.</p>
+          </div>
+          </article>
         </div>
       </section>
-
-      <footer className="entry-footer">
-        <span>SecondServe · Every meal counts.</span>
-        <span>Built for safer, more feasible community food rescue.</span>
-      </footer>
     </main>
   )
 }

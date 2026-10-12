@@ -5,6 +5,7 @@ import logging
 from datetime import timedelta
 from typing import Any
 
+from google.cloud import storage
 from pydantic import ValidationError
 
 from app.api import errors
@@ -173,11 +174,13 @@ class GeminiService:
                 "Image analysis failed. Continue with manual entry.",
             ) from exc
 
+        analysis_id = new_id("an")
+        image_path = self._store_image(owner_uid, analysis_id, image, content_type)
         now = utc_now()
         analysis = FoodAnalysis(
-            analysis_id=new_id("an"),
+            analysis_id=analysis_id,
             owner_uid=owner_uid,
-            image_path=None,
+            image_path=image_path,
             expires_at=now + timedelta(hours=24),
             candidate=candidate,
             required_confirmations=[
@@ -196,6 +199,36 @@ class GeminiService:
             updated_at=now,
         )
         return self.repository.create_analysis(analysis)
+
+    def _store_image(
+        self,
+        owner_uid: str,
+        analysis_id: str,
+        image: bytes,
+        content_type: str,
+    ) -> str | None:
+        if not self.settings.gcs_bucket:
+            if not self.settings.demo_mode:
+                raise errors.SecondServeError(
+                    503,
+                    "IMAGE_STORAGE_NOT_CONFIGURED",
+                    "Secure temporary image storage is not configured. Contact the administrator.",
+                )
+            return None
+        try:
+            client = storage.Client(project=self.settings.firestore_project_id)
+            blob = client.bucket(self.settings.gcs_bucket).blob(
+                f"staged/{owner_uid}/{analysis_id}"
+            )
+            blob.upload_from_string(image, content_type=content_type)
+            return blob.name
+        except Exception as exc:
+            logger.exception("Could not store uploaded image")
+            raise errors.SecondServeError(
+                503,
+                "IMAGE_STORAGE_FAILED",
+                "The image could not be securely staged for analysis.",
+            ) from exc
 
     def _generate_candidate(self, image: bytes, content_type: str) -> dict[str, Any]:
         project_id = self.settings.vertex_ai_project_id or self.settings.firestore_project_id

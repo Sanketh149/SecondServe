@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from app.api.dependencies import require_role
-from app.models.offer import OfferStatus
+
 from app.models.user import CurrentUser
 from app.repositories.memory import get_repository
 from app.schemas.offer import (
@@ -27,7 +27,6 @@ def list_offers(user: CurrentUser = Depends(require_role("recipient"))) -> Offer
         offer
         for recipient_id in recipient_ids
         for offer in repository.list_offers_for_recipient(recipient_id)
-        if offer.status in {OfferStatus.PENDING, OfferStatus.ACCEPTED}
     ]
     return OfferListResponse(offers=offers)
 

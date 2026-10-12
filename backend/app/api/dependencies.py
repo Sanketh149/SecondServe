@@ -18,7 +18,12 @@ def get_current_user(
         user = get_repository().get_user(x_demo_user)
         if user is None:
             raise errors.SecondServeError(401, "INVALID_DEMO_USER", "The demo user does not exist.")
-        return CurrentUser(uid=user.uid, role=user.role, organization_id=user.organization_id)
+        return CurrentUser(
+            uid=user.uid,
+            role=user.role,
+            organization_id=user.organization_id,
+            display_name=user.display_name,
+        )
     if not authorization or not authorization.startswith("Bearer "):
         raise errors.SecondServeError(401, "UNAUTHORIZED", "A Firebase ID token is required.")
     try:
@@ -39,13 +44,31 @@ def get_current_user(
         raise errors.SecondServeError(401, "INVALID_AUTH_TOKEN", "The Firebase ID token is invalid.") from exc
     user = get_repository().get_user(token["uid"])
     if user is None:
-        raise errors.SecondServeError(403, "USER_NOT_FOUND", "No application profile was found for this user.")
-    return CurrentUser(uid=user.uid, role=user.role, organization_id=user.organization_id)
+        return CurrentUser(
+            uid=token["uid"],
+            display_name=token.get("name") or token.get("email"),
+        )
+    return CurrentUser(
+        uid=user.uid,
+        role=user.role,
+        organization_id=user.organization_id,
+        display_name=user.display_name,
+    )
 
 
 def require_role(*roles: str):
     def dependency(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+        if user.role is None or user.organization_id is None:
+            raise errors.SecondServeError(
+                409,
+                "PROFILE_SETUP_REQUIRED",
+                "Complete organization setup before using this workspace.",
+            )
         if user.role.value not in roles:
-            raise errors.SecondServeError(403, "FORBIDDEN", "The authenticated user cannot perform this action.")
+            raise errors.SecondServeError(
+                403,
+                "FORBIDDEN",
+                "The authenticated user cannot perform this action.",
+            )
         return user
     return dependency

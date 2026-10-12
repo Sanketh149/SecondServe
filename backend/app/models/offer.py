@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
 from app.models.common import TimestampModel
@@ -25,6 +25,7 @@ class Offer(TimestampModel):
     expires_at: datetime
     decision_reason: str | None
     transition_count: int = 0
+    expiry_scheduled: bool = False
 
 
 class OfferResponse(BaseModel):

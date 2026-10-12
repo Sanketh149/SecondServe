@@ -1,17 +1,27 @@
 # SecondServe frontend
 
-Responsive React + TypeScript prototype for the SecondServe food-rescue flow.
+Responsive React + TypeScript application for the SecondServe food-rescue flow.
+Sign-in uses Firebase Authentication; application data is loaded through the
+FastAPI API.
 
 ## Run locally
 
+Create `frontend/.env.local` from `.env.example` and set the Firebase Web App
+configuration values. Keep `VITE_API_BASE_URL` blank to use the Vite proxy to
+`http://127.0.0.1:8000`.
+
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
-To use the FastAPI backend, copy `.env.example` to `.env.local` and run the
-backend at `http://127.0.0.1:8000`. The frontend then uses the seeded demo
-identities and backend API data instead of the browser-only reducer.
+The API and Firebase project must be configured and running for authenticated
+workspaces. Create a donor account and a recipient account through the UI;
+their organization profiles and rescue activity are stored in Firestore.
+There are no browser-only demo fallbacks or seeded sample records.
+In local mode, the UI warns that automatic timeout callbacks are disabled;
+an overdue response attempt still advances the offer relay. Production-like
+environments block offer start until Cloud Tasks is configured.
 
 Useful checks:
 
@@ -20,22 +30,7 @@ npm run build
 npm run lint
 ```
 
-## Demo journeys
-
-- `/` — choose the donor or a seeded recipient demo account.
-- `/donor/dashboard` — donor overview and active rescues.
-- `/donor/new` — Food Passport, readiness/split plan, donor confirmation, and offer start.
-- `/donor/donations/:donationId` — relay status, allocations, and handoff code.
-- `/recipient/:recipientId/offers` — accept or decline offers and submit recipient-confirmed receipts.
-- `/recipient/:recipientId/capacity`, `/received`, and `/impact` — recipient profile and outcomes.
-
-Without `VITE_API_BASE_URL`, the UI uses synthetic sample data and in-memory
-browser state; refreshing resets demo changes. With the backend URL configured,
-donation, offer, receipt, impact, image analysis, and readiness flows use the
-FastAPI endpoints. Gemini and Google Routes require backend configuration and
-Google Cloud credentials; their failures are surfaced rather than replaced
-with success-shaped sample results. Do not use the demo as food-safety
-certification or a report of real impact.
-
-For backend setup and its current persistence/infrastructure limits, see the
-root [README](../README.md).
+The donor forecast uses saved donation history. It returns an insufficient
+history state until enough real observations exist; it does not fill gaps with
+fabricated examples. For Firebase, Firestore, Vertex AI, and local API setup,
+see the root [README](../README.md).

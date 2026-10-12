@@ -1,12 +1,10 @@
 import {
-  recipientCandidates,
   type DemoDonation,
   type NewDonationInput,
 } from "@/lib/demo-data"
+import { getFirebaseIdToken } from "@/lib/firebase"
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? ""
-
-export const isApiMode = apiBaseUrl.length > 0
 
 export class ApiError extends Error {
   readonly status: number
@@ -97,6 +95,7 @@ interface ApiAllocation {
 interface ApiDonation {
   donationId: string
   donorOrganizationId: string
+  donorOrganizationName?: string
   itemName: string
   category: string
   quantity: number
@@ -117,6 +116,7 @@ interface ApiDonation {
 }
 
 export interface ApiDonationDetail extends ApiDonation {
+  donorOrganizationName: string
   plan: ApiRescuePlan | null
   allocations: ApiAllocation[]
   events: Array<{
@@ -139,6 +139,7 @@ export interface ApiOffer {
   expiresAt: string
   decisionReason: string | null
   transitionCount: number
+  expiryScheduled: boolean
   createdAt: string
   updatedAt: string
 }
@@ -148,6 +149,31 @@ export interface ApiImpactSummary {
   rescuedMeals: number
   receiptsCount: number
   period: string
+}
+
+export interface ApiUserProfile {
+  uid: string
+  role: "donor" | "recipient" | null
+  organizationId: string | null
+  displayName: string | null
+  organizationName: string | null
+  organizationAddress: string | null
+  recipientId: string | null
+}
+
+export interface ApiForecast {
+  sampleSize: number
+  source: string
+  usesBaseline: boolean
+  insufficientHistory: boolean
+  opportunities: Array<{
+    weekday: string
+    predictedQuantity: number
+    confidence: number
+    sampleSize: number
+    source: string
+    isBaseline: boolean
+  }>
 }
 
 export interface ApiRecipientProfile {
@@ -178,18 +204,6 @@ export interface DonationFormPayload {
   storageCondition: string
   pickupAvailableAt: string
   usableUntil: string
-}
-
-const recipientIds: Record<string, string> = {
-  "rcp-hope": "hope-shelter",
-  "rcp-community": "community-kitchen",
-  "rcp-pantry": "neighborhood-kitchen",
-}
-
-const recipientApiIds: Record<string, string> = {
-  "hope-shelter": "rcp-hope",
-  "community-kitchen": "rcp-community",
-  "neighborhood-kitchen": "rcp-pantry",
 }
 
 const categoryLabels: Record<string, string> = {
@@ -223,26 +237,13 @@ const allocationStatuses: Record<string, DemoDonation["allocations"][number]["st
   CANCELLED: "DECLINED",
 }
 
-function currentDemoUser(): string {
-  const recipientSlug = window.location.pathname.match(/^\/recipient\/([^/]+)/)?.[1]
-  if (!recipientSlug) return "demo-donor"
-  const recipientUsers: Record<string, string> = {
-    "hope-shelter": "demo-hope",
-    "community-kitchen": "demo-community",
-    "neighborhood-kitchen": "demo-pantry",
-  }
-  return recipientUsers[recipientSlug] ?? "demo-hope"
-}
-
 async function request<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  if (!apiBaseUrl) {
-    throw new ApiError("The backend API URL is not configured.", 0)
-  }
   const headers = new Headers(options.headers)
-  headers.set("X-Demo-User", currentDemoUser())
+  const token = await getFirebaseIdToken()
+  headers.set("Authorization", `Bearer ${token}`)
   if (options.body && !(options.body instanceof FormData)) {
     headers.set("Content-Type", "application/json")
   }
@@ -369,8 +370,70 @@ export async function loadImpactSummary(): Promise<ApiImpactSummary> {
   return request<ApiImpactSummary>("/impact/summary")
 }
 
+export async function getMe(): Promise<ApiUserProfile> {
+  return request<ApiUserProfile>("/me")
+}
+
+export interface OrganizationProfilePayload {
+  role: "donor" | "recipient"
+  displayName: string
+  organizationName: string
+  address: string
+  latitude: number
+  longitude: number
+  timezone: string
+  capacity?: number
+  unmetDemand?: number
+  acceptedCategories?: string[]
+  dietaryTags?: string[]
+  allergenRestrictions?: string[]
+  openTime?: string
+  closeTime?: string
+  openSaturday?: boolean
+  openSunday?: boolean
+}
+
+export async function createOrganizationProfile(
+  profile: OrganizationProfilePayload,
+): Promise<ApiUserProfile> {
+  return request<ApiUserProfile>("/me/profile", {
+    method: "POST",
+    body: JSON.stringify(profile),
+  })
+}
+
+export async function loadForecast(): Promise<ApiForecast> {
+  return request<ApiForecast>("/forecast/opportunities")
+}
+
 export async function loadRecipientProfile(): Promise<ApiRecipientProfile> {
   return request<ApiRecipientProfile>("/recipients/me/profile")
+}
+
+export async function saveDonationForMatching(
+  input: NewDonationInput,
+): Promise<string> {
+  const created = await request<ApiDonation>("/donations", {
+    method: "POST",
+    body: JSON.stringify(toDonationPayload(input)),
+  })
+  return created.donationId
+}
+
+export async function retryDonationMatch(
+  donationId: string,
+): Promise<ApiRescuePlan> {
+  const plan = await request<ApiRescuePlan>(
+    `/donations/${encodeURIComponent(donationId)}/rescue-plan`,
+    { method: "POST" },
+  )
+  if (plan.status === "FULL" || plan.status === "PARTIAL") {
+    await request(
+      `/rescue-plans/${encodeURIComponent(plan.planId)}/start`,
+      { method: "POST" },
+    )
+  }
+  return plan
 }
 
 export async function createDonationAndStart(
@@ -430,31 +493,20 @@ export async function submitBackendReceipt(
 
 function mapDonation(donation: ApiDonationDetail): DemoDonation {
   const allocations = donation.allocations.map((allocation) => {
-    const mappedRecipientId =
-      recipientIds[allocation.recipientId] ?? allocation.recipientId
-    const candidate = recipientCandidates.find((item) => item.id === mappedRecipientId)
+    const mappedRecipientId = allocation.recipientId
     const fallbackId =
       allocation.assignedCandidateIds[allocation.activeCandidateIndex + 1]
-    const fallbackCandidate = recipientCandidates.find(
-      (item) => item.id === (recipientIds[fallbackId] ?? fallbackId),
-    )
     return {
       id: allocation.allocationId,
       recipientId: mappedRecipientId,
       recipientName: allocation.recipientName,
-      initials: candidate?.initials ?? allocation.recipientName.slice(0, 2).toUpperCase(),
+      initials: allocation.recipientName.slice(0, 2).toUpperCase(),
       quantity: allocation.quantity,
       status: allocationStatuses[allocation.status] ?? "QUEUED",
       distance: allocation.distance,
       eta: allocation.eta,
       receivedQuantity: allocation.receivedQuantity,
-      ...(fallbackCandidate
-        ? {
-            fallbackRecipientId: fallbackCandidate.id,
-            fallbackRecipientName: fallbackCandidate.name,
-            fallbackInitials: fallbackCandidate.initials,
-          }
-        : {}),
+      ...(fallbackId ? { fallbackRecipientId: fallbackId } : {}),
     }
   })
   const status = donorStatuses[donation.status] ?? "UNCLAIMED"
@@ -463,6 +515,7 @@ function mapDonation(donation: ApiDonationDetail): DemoDonation {
   return {
     id: donation.donationId,
     itemName: donation.itemName,
+    donorName: donation.donorOrganizationName,
     category: categoryLabels[donation.category] ?? donation.category,
     quantity: donation.quantity,
     unit: "meals",
@@ -480,10 +533,12 @@ function mapDonation(donation: ApiDonationDetail): DemoDonation {
         : status,
     handoffCode: donation.handoffCode ?? "",
     responseWindowEndsAt: donation.currentOffer?.expiresAt,
+    expiryScheduled: donation.currentOffer?.expiryScheduled ?? false,
     events: donation.events.map((event) => ({
       type: event.eventType,
       occurredAt: event.occurredAt,
       detail: eventDetail(event.eventType, event.payload, allocations),
+      payload: event.payload,
     })),
     allocations,
   }
@@ -517,8 +572,4 @@ function eventDetail(
     default:
       return eventType.toLowerCase().replaceAll("_", " ")
   }
-}
-
-export function backendRecipientId(slug: string): string {
-  return recipientApiIds[slug] ?? slug
 }

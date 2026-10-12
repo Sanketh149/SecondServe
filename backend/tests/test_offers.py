@@ -1,6 +1,68 @@
+from datetime import UTC, datetime
+
+import pytest
 from fastapi.testclient import TestClient
 
+from app.api.errors import SecondServeError
+from app.config import get_settings
+from app.models.offer import Offer, OfferStatus
+from app.repositories.memory import InMemoryRepository
+from app.services.offer_service import OfferService
 from tests.conftest import demo_headers, demo_rescue_window
+
+
+def test_local_offer_expiry_is_explicitly_unscheduled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "environment", "local")
+    monkeypatch.setattr(settings, "demo_mode", False)
+    monkeypatch.setattr(settings, "cloud_tasks_project_id", None)
+    monkeypatch.setattr(settings, "cloud_tasks_location", None)
+    monkeypatch.setattr(settings, "cloud_tasks_service_url", None)
+    monkeypatch.setattr(settings, "cloud_tasks_service_account", None)
+    now = datetime.now(UTC)
+    offer = Offer(
+        offer_id="offer-local",
+        allocation_id="allocation-local",
+        donation_id="donation-local",
+        recipient_id="recipient-local",
+        status=OfferStatus.PENDING,
+        expires_at=now,
+        decision_reason=None,
+        created_at=now,
+        updated_at=now,
+    )
+
+    assert OfferService(InMemoryRepository())._schedule_expiration(offer) is False
+
+
+def test_non_local_offer_start_requires_expiry_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "environment", "production")
+    monkeypatch.setattr(settings, "demo_mode", False)
+    monkeypatch.setattr(settings, "cloud_tasks_project_id", None)
+    monkeypatch.setattr(settings, "cloud_tasks_location", None)
+    monkeypatch.setattr(settings, "cloud_tasks_service_url", None)
+    monkeypatch.setattr(settings, "cloud_tasks_service_account", None)
+    now = datetime.now(UTC)
+    offer = Offer(
+        offer_id="offer-production",
+        allocation_id="allocation-production",
+        donation_id="donation-production",
+        recipient_id="recipient-production",
+        status=OfferStatus.PENDING,
+        expires_at=now,
+        decision_reason=None,
+        created_at=now,
+        updated_at=now,
+    )
+
+    with pytest.raises(SecondServeError) as error:
+        OfferService(InMemoryRepository())._schedule_expiration(offer)
+    assert error.value.code == "CLOUD_TASKS_NOT_CONFIGURED"
 
 
 def test_offer_started_and_declined_relay_is_state_safe(client: TestClient) -> None:
