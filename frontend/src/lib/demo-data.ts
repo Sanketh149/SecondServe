@@ -4,6 +4,7 @@ export type AllocationStatus =
   | "ACCEPTED"
   | "DECLINED"
   | "RECEIVED"
+  | "CANCELLED"
 
 export type DonationStatus =
   | "OFFERING"
@@ -36,9 +37,15 @@ export interface DemoDonation {
   category: string
   quantity: number
   unit: "meals"
+  preparedAt?: string
+  storageCondition?: string
+  pickupAvailableAt?: string
   createdAt: string
   usableUntil: string
   usableUntilAt?: string
+  dietaryTags?: string[]
+  declaredAllergens?: string[]
+  allergenStatus?: "DONOR_CONFIRMED" | "UNKNOWN" | "NOT_APPLICABLE"
   status: DonationStatus
   handoffCode: string
   responseWindowEndsAt?: string
@@ -56,9 +63,26 @@ export function isPendingMatch(donation: DemoDonation): boolean {
   const cutoff = Date.parse(donation.usableUntilAt ?? "")
   return (
     donation.backendStatus === "OPEN" &&
-    donation.allocations.length === 0 &&
+    donation.allocations.every(
+      (allocation) =>
+        allocation.status === "DECLINED" || allocation.status === "CANCELLED",
+    ) &&
     Number.isFinite(cutoff) &&
     cutoff > Date.now()
+  )
+}
+
+export function canEditDonation(donation: DemoDonation): boolean {
+  return (
+    ["OPEN", "PLANNED", "OFFERING", "EXPIRED"].includes(
+      donation.backendStatus ?? "",
+    ) &&
+    donation.allocations.every(
+      (allocation) =>
+        allocation.status !== "ACCEPTED" &&
+        allocation.status !== "RECEIVED" &&
+        (allocation.receivedQuantity ?? 0) === 0,
+    )
   )
 }
 

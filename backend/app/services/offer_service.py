@@ -43,7 +43,12 @@ class OfferService:
             raise errors.SecondServeError(403, "FORBIDDEN", "The donation is not owned by this donor.")
         if donation.usable_until <= utc_now():
             raise errors.SecondServeError(409, "DONATION_EXPIRED", "The donation cutoff has passed.")
-        if self.repository.list_offers_for_donation(donation.donation_id):
+        if any(
+            existing.status in {OfferStatus.PENDING, OfferStatus.ACCEPTED}
+            for existing in self.repository.list_offers_for_donation(
+                donation.donation_id
+            )
+        ):
             raise errors.SecondServeError(409, "OFFER_ALREADY_STARTED", "An offer has already started for this rescue plan.")
         if not plan.allocations:
             raise errors.SecondServeError(409, "PLAN_HAS_NO_ALLOCATIONS", "The rescue plan has no eligible recipients.")

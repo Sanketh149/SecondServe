@@ -1273,9 +1273,7 @@
   align-items: center;
   gap: 15px;
   padding: 13px 19px;
-  color: inherit;
   border-bottom: 1px solid #edf0eb;
-  text-decoration: none;
   transition: background-color 160ms ease;
 }
 
@@ -1285,6 +1283,39 @@
 
 .donation-list-row:hover {
   background: #f9fbf8;
+}
+
+.donation-list-row-link {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 15px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.donation-list-row-link:focus-visible,
+.donation-row-edit:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 3px;
+}
+
+.donation-row-edit {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  place-items: center;
+  color: var(--brand-primary);
+  background: #f2f7f3;
+  border: 1px solid #e0ebe2;
+  border-radius: 10px;
+  text-decoration: none;
+}
+
+.donation-row-edit:hover {
+  background: var(--status-success-background);
 }
 
 .donation-food-icon {
@@ -1349,6 +1380,23 @@
   display: flex;
   min-height: calc(100vh - 76px);
   flex-direction: column;
+}
+
+.page-content--recipient-capacity,
+.page-content--recipient-summary {
+  display: flex;
+  min-height: calc(100vh - 76px);
+  flex-direction: column;
+}
+
+.page-content--recipient-capacity > .recipient-profile-grid {
+  min-height: 320px;
+  flex: 1;
+}
+
+.page-content--recipient-summary > .recipient-received-history {
+  min-height: 240px;
+  flex: 1;
 }
 
 .donor-impact-page {
@@ -3169,6 +3217,54 @@
   padding-bottom: 5px;
 }
 
+.impact-receipt-table .receipt-history-row {
+  min-height: 84px;
+  padding: 12px 20px;
+}
+
+.impact-receipt-table .receipt-history-row > .ui-badge {
+  margin-right: 2px;
+}
+
+.recipient-received-history {
+  display: flex;
+  flex-direction: column;
+}
+
+.recipient-received-history .empty-state {
+  flex: 1;
+  align-content: center;
+}
+
+.donation-heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+}
+
+.donation-edit-card {
+  width: min(100%, 980px);
+  margin: 0 auto;
+  padding: 22px;
+}
+
+.donation-edit-form {
+  display: grid;
+  gap: 18px;
+}
+
+.donation-edit-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.donation-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+}
+
 .mobile-nav {
   display: none;
 }
@@ -4773,6 +4869,11 @@
     padding: 12px;
   }
 
+  .donation-list-row-link {
+    flex-wrap: wrap;
+    gap: 9px;
+  }
+
   .donation-row-main {
     min-width: calc(100% - 55px);
   }
@@ -4789,6 +4890,28 @@
     display: none;
   }
 
+  .donation-row-edit {
+    margin-left: auto;
+  }
+
+  .page-content--recipient-capacity,
+  .page-content--recipient-summary {
+    min-height: calc(100vh - 60px);
+  }
+
+  .page-content--recipient-capacity > .recipient-profile-grid {
+    min-height: 0;
+  }
+
+  .impact-receipt-table .receipt-history-row {
+    flex-wrap: wrap;
+    padding: 12px 14px;
+  }
+
+  .impact-receipt-table .receipt-history-row > .ui-badge {
+    margin-left: 48px;
+  }
+
   .impact-chart {
     height: 180px;
     gap: 7px;
@@ -4797,6 +4920,22 @@
 
   .impact-metrics {
     grid-template-columns: 1fr;
+  }
+
+  .donation-edit-card {
+    padding: 14px;
+  }
+
+  .donation-edit-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .donation-edit-actions {
+    flex-direction: column-reverse;
+  }
+
+  .donation-edit-actions .ui-button {
+    width: 100%;
   }
 
   .page-content--impact {

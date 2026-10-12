@@ -441,9 +441,10 @@ export function RecipientCapacityPage() {
     recipientProfile.hours,
     recipientProfile.timezone,
   )
+  const editableProfile = recipientProfile
 
   function beginEditing() {
-    setDraft(profileDraft(recipientProfile))
+    setDraft(profileDraft(editableProfile))
     setError("")
     setSavedMessage("")
     setEditing(true)
@@ -900,7 +901,7 @@ export function RecipientReceivedPage() {
   const location = useLocation()
   const reducedMotion = useReducedMotion() ?? false
   const receiptConfirmation = getReceiptConfirmation(location.state)
-  const { donations } = useDemoStore()
+  const { donations, impactSummary, recipientProfile } = useDemoStore()
   const receiptCount = donations.reduce(
     (total, donation) =>
       total +
@@ -911,12 +912,34 @@ export function RecipientReceivedPage() {
       ).length,
     0,
   )
+  const confirmed = donations.reduce(
+    (total, donation) =>
+      total +
+      donation.allocations.reduce(
+        (allocationTotal, allocation) =>
+          allocationTotal +
+          (allocation.recipientId === account.candidateId
+            ? allocation.receivedQuantity ?? 0
+            : 0),
+        0,
+      ),
+    0,
+  )
+  const confirmedTotal = impactSummary?.confirmedQuantity ?? confirmed
+  const completedRescues = impactSummary?.receiptsCount ?? receiptCount
+  const receivedDonations = donations.filter((donation) =>
+    donation.allocations.some(
+      (allocation) =>
+        allocation.recipientId === account.candidateId &&
+        allocation.status === "RECEIVED",
+    ),
+  )
 
   return (
     <>
       <PageHeading
-        description="Handoffs that this recipient account has confirmed."
-        title="Received food"
+        description={`Confirmed deliveries and rescue impact for ${account.name}.`}
+        title="Received & impact"
       />
       <AnimatePresence initial={false}>
         {receiptConfirmation && (
@@ -952,73 +975,6 @@ export function RecipientReceivedPage() {
           </motion.div>
         )}
       </AnimatePresence>
-      <MetricCard
-        icon={<CheckCircle2 aria-hidden="true" size={17} />}
-        note="Only recipient-confirmed handoffs"
-        title="Confirmed receipts"
-        value={String(receiptCount)}
-      />
-      <Card className="panel receipt-history">
-        {donations.some((donation) =>
-          donation.allocations.some(
-            (allocation) =>
-              allocation.recipientId === account.candidateId &&
-              allocation.status === "RECEIVED",
-          ),
-        ) ? (
-          donations.map((donation) => (
-            <ReceiptHistoryRow
-              donation={donation}
-              key={donation.id}
-              recipientId={account.candidateId}
-            />
-          ))
-        ) : (
-          <div className="empty-state compact-empty">
-            <span className="empty-icon"><PackageCheck aria-hidden="true" size={20} /></span>
-            <h2>No confirmed receipts yet</h2>
-            <p>Accept an offer, then confirm the actual quantity at handoff.</p>
-            <Link className="text-link" to={`/recipient/${account.id}/offers`}>
-              Return to offers <ArrowRight aria-hidden="true" size={14} />
-            </Link>
-          </div>
-        )}
-      </Card>
-    </>
-  )
-}
-
-export function RecipientImpactPage() {
-  const account = useRecipientAccount()
-  const { donations, impactSummary, recipientProfile } = useDemoStore()
-  const confirmed = donations.reduce(
-    (total, donation) =>
-      total +
-      donation.allocations.reduce(
-        (allocationTotal, allocation) =>
-          allocationTotal +
-          (allocation.recipientId === account.candidateId
-            ? allocation.receivedQuantity ?? 0
-            : 0),
-        0,
-      ),
-    0,
-  )
-  const confirmedTotal = impactSummary?.confirmedQuantity ?? confirmed
-
-  return (
-    <>
-      <PageHeading
-        description={`Food received and confirmed by ${account.name}.`}
-        title="Recipient impact"
-      />
-      <ReadinessNotice variant="success">
-        <ShieldCheck aria-hidden="true" size={18} />
-        <span>
-          <strong>Confirmed, not assumed.</strong>
-          <span>Offers and acceptances do not count as received food.</span>
-        </span>
-      </ReadinessNotice>
       <div className="metrics-grid impact-metrics">
         <MetricCard
           icon={<CheckCircle2 aria-hidden="true" size={17} />}
@@ -1030,7 +986,7 @@ export function RecipientImpactPage() {
           icon={<Utensils aria-hidden="true" size={17} />}
           note="Confirmed receipt records"
           title="Completed rescues"
-          value={String(impactSummary?.receiptsCount ?? 0)}
+          value={String(completedRescues)}
         />
         <MetricCard
           icon={<MapPin aria-hidden="true" size={17} />}
@@ -1039,19 +995,27 @@ export function RecipientImpactPage() {
           value={`${recipientProfile?.unmetDemand ?? 0} meals`}
         />
       </div>
-      <Card className="panel impact-receipt-table">
-        <div className="panel-heading"><h2>Recipient-confirmed deliveries</h2></div>
-        {donations.map((donation) => (
-          <ReceiptHistoryRow
-            donation={donation}
-            key={donation.id}
-            recipientId={account.candidateId}
-          />
-        ))}
-        {confirmed === 0 && (
-          <p className="panel-empty-note">
-            New confirmations appear here after the actual handoff is recorded.
-          </p>
+      <Card className="panel impact-receipt-table recipient-received-history">
+        <div className="panel-heading">
+          <h2>Recipient-confirmed deliveries</h2>
+        </div>
+        {receivedDonations.length > 0 ? (
+          receivedDonations.map((donation) => (
+            <ReceiptHistoryRow
+              donation={donation}
+              key={donation.id}
+              recipientId={account.candidateId}
+            />
+          ))
+        ) : (
+          <div className="empty-state compact-empty">
+            <span className="empty-icon"><PackageCheck aria-hidden="true" size={20} /></span>
+            <h2>No confirmed receipts yet</h2>
+            <p>Offers appear here after you confirm the actual quantity at handoff.</p>
+            <Link className="text-link" to={`/recipient/${account.id}/offers`}>
+              View offers <ArrowRight aria-hidden="true" size={14} />
+            </Link>
+          </div>
         )}
       </Card>
     </>

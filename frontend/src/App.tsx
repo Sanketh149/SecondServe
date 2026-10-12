@@ -20,7 +20,6 @@ import {
 } from "@/pages/DonorPages"
 import {
   RecipientCapacityPage,
-  RecipientImpactPage,
   RecipientOffersPage,
   RecipientReceivedPage,
 } from "@/pages/RecipientPages"
@@ -81,7 +80,10 @@ function AuthenticatedApplication() {
             <Route element={<RecipientOffersPage />} path="offers" />
             <Route element={<RecipientCapacityPage />} path="capacity" />
             <Route element={<RecipientReceivedPage />} path="received" />
-            <Route element={<RecipientImpactPage />} path="impact" />
+            <Route
+              element={<Navigate replace to="../received" />}
+              path="impact"
+            />
           </Route>
         )}
         <Route element={<NotFoundPage />} path="*" />

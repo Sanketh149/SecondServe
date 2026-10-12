@@ -2,8 +2,11 @@ from fastapi import APIRouter, Depends
 
 from app.api import errors
 from app.api.dependencies import require_role
+from app.models.allocation import AllocationStatus
 from app.models.common import AllergenStatus, FieldValue, Source, utc_now
 from app.models.donation import CreateDonationRequest, Donation, DonationStatus
+from app.models.events import Event
+from app.models.offer import OfferStatus
 from app.models.user import CurrentUser
 from app.repositories.memory import get_repository
 from app.schemas.donation import (
@@ -11,8 +14,10 @@ from app.schemas.donation import (
     DonationDetailResponse,
     DonationListResponse,
     DonationResponse,
+    DonationUpdateRequest,
 )
 from app.schemas.rescue_plan import RescuePlanPreviewRequest, RescuePlanResponse
+from app.services.offer_service import OfferService
 from app.services.plan_service import PlanService
 from app.services.route_service import RouteService
 from app.utils.ids import new_id
@@ -136,6 +141,126 @@ def create_donation(request: CreateDonationRequest, user: CurrentUser = Depends(
     return repository.create_donation(donation)
 
 
+@router.put("/{donation_id}", response_model=DonationResponse)
+def update_donation(
+    donation_id: str,
+    request: DonationUpdateRequest,
+    user: CurrentUser = Depends(require_role("donor")),
+) -> Donation:
+    repository = get_repository()
+    donation = repository.get_donation(donation_id)
+    if donation is None:
+        raise errors.SecondServeError(404, "DONATION_NOT_FOUND", "The donation was not found.")
+    if donation.donor_organization_id != user.organization_id:
+        raise errors.SecondServeError(403, "FORBIDDEN", "The donation is not owned by this donor.")
+    if not request.donor_confirmed:
+        raise errors.SecondServeError(
+            422,
+            "DONOR_CONFIRMATION_REQUIRED",
+            "Confirm the updated food details and donor-entered safety fields before saving.",
+        )
+
+    locked_statuses = {
+        DonationStatus.PARTIALLY_ACCEPTED,
+        DonationStatus.ACCEPTED,
+        DonationStatus.IN_PROGRESS,
+        DonationStatus.RESCUED,
+        DonationStatus.PARTIALLY_RESCUED,
+        DonationStatus.CANCELLED,
+    }
+    if donation.status in locked_statuses:
+        raise errors.SecondServeError(
+            409,
+            "DONATION_NOT_EDITABLE",
+            "A donation cannot be edited after a recipient accepts or a handoff is confirmed.",
+        )
+
+    offers = repository.list_offers_for_donation(donation_id)
+    allocations = repository.list_allocations_for_donation(donation_id)
+    if any(offer.status == OfferStatus.ACCEPTED for offer in offers) or any(
+        allocation.status in {AllocationStatus.ACCEPTED, AllocationStatus.DELIVERED}
+        or allocation.confirmed_quantity > 0
+        for allocation in allocations
+    ):
+        raise errors.SecondServeError(
+            409,
+            "DONATION_NOT_EDITABLE",
+            "A donation cannot be edited after a recipient accepts or a handoff is confirmed.",
+        )
+    if as_utc(request.usable_until) <= utc_now():
+        raise errors.SecondServeError(
+            422,
+            "DONATION_CUTOFF_PASSED",
+            "Set a usable-until time in the future to save and rematch this donation.",
+        )
+
+    cancelled_offer_ids: list[str] = []
+    for offer in offers:
+        if offer.status == OfferStatus.PENDING:
+            updated_offer = repository.update_offer(
+                offer.offer_id,
+                status=OfferStatus.CANCELLED,
+                decision_reason="Donation details changed by donor",
+                transition_count=offer.transition_count + 1,
+            )
+            if updated_offer is None:
+                raise errors.SecondServeError(
+                    409,
+                    "OFFER_UPDATE_FAILED",
+                    "An active offer could not be cancelled; the donation was not updated.",
+                )
+            cancelled_offer_ids.append(offer.offer_id)
+
+    for allocation in allocations:
+        if allocation.status in {AllocationStatus.PLANNED, AllocationStatus.OFFERING}:
+            updated_allocation = repository.update_allocation(
+                allocation.allocation_id,
+                status=AllocationStatus.CANCELLED,
+                handoff_code_hash=None,
+            )
+            if updated_allocation is None:
+                raise errors.SecondServeError(
+                    409,
+                    "ALLOCATION_UPDATE_FAILED",
+                    "An existing recipient allocation could not be cancelled.",
+                )
+            repository.delete_handoff_code(allocation.allocation_id)
+
+    changes = request.model_dump(exclude={"analysis_id", "donor_confirmed"})
+    updated = repository.update_donation(
+        donation_id,
+        **changes,
+        status=DonationStatus.OPEN,
+        plan_id=None,
+        handoff_code_hash=None,
+    )
+    if updated is None:
+        raise errors.SecondServeError(
+            409,
+            "DONATION_UPDATE_FAILED",
+            "The donation could not be updated.",
+        )
+
+    repository.add_event(
+        donation_id,
+        Event(
+            event_id=new_id("evt"),
+            actor_id=user.uid,
+            event_type="DONATION_UPDATED",
+            occurred_at=utc_now(),
+            payload={
+                "updatedFields": sorted(changes),
+                "cancelledOfferIds": cancelled_offer_ids,
+            },
+        ),
+    )
+
+    plan = PlanService(repository).create(updated, user.organization_id)
+    if plan.status.value in {"FULL", "PARTIAL"}:
+        OfferService(repository).start_first_offer(plan.plan_id, user.organization_id)
+    return repository.get_donation(donation_id) or updated
+
+
 @router.get("", response_model=DonationListResponse)
 def list_donations(user: CurrentUser = Depends(require_role("donor"))) -> DonationListResponse:
     return DonationListResponse(donations=get_repository().list_donations(user.organization_id))
@@ -181,6 +306,18 @@ def get_donation(
     if user.role.value == "donor" and donation.donor_organization_id != user.organization_id:
         raise errors.SecondServeError(403, "FORBIDDEN", "The donation is not owned by this donor.")
     allocations = repository.list_allocations_for_donation(donation_id)
+    if donation.plan_id:
+        allocations = [
+            allocation
+            for allocation in allocations
+            if allocation.plan_id == donation.plan_id
+        ]
+    else:
+        allocations = [
+            allocation
+            for allocation in allocations
+            if allocation.status != AllocationStatus.CANCELLED
+        ]
     recipient_by_id = {
         recipient.recipient_id: recipient
         for recipient in repository.list_recipients()

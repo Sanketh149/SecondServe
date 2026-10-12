@@ -2,7 +2,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
 from app.models.allocation import Allocation
-from app.models.donation import Donation, DonationStatus
+from app.models.donation import CreateDonationRequest, Donation
 from app.models.events import Event
 from app.models.offer import Offer
 from app.models.rescue_plan import RescuePlan
@@ -50,6 +50,5 @@ class DonationDetailResponse(DonationResponse):
     donor_organization_name: str
 
 
-class DonationUpdateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    status: DonationStatus
+class DonationUpdateRequest(CreateDonationRequest):
+    pass

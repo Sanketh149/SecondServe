@@ -13,6 +13,7 @@ import {
   LoaderCircle,
   MapPin,
   Info,
+  Pencil,
   Plus,
   ShieldCheck,
   Sparkles,
@@ -20,8 +21,14 @@ import {
   FaceSlightlySmilingPlus
 } from "lucide-react"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
-import { useEffect, useRef, useState, type ChangeEvent } from "react"
-import { Link, useNavigate, useParams } from "react-router-dom"
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from "react"
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { AvatarStack, MetricCard, PageHeading, PrimaryLink, ReadinessNotice, RescueTimeline, RouteMeta, StatusBadge } from "@/components/AppShell"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -30,6 +37,7 @@ import { Input } from "@/components/ui/input"
 import {
   getConfirmedQuantity,
   getCurrentAllocation,
+  canEditDonation,
   isPendingMatch,
   type DemoDonation,
   type NewDonationInput,
@@ -445,30 +453,45 @@ function ImpactPreview({
 function DonationRow({ donation }: { donation: DemoDonation }) {
   const received = getConfirmedQuantity(donation)
   return (
-    <Link className="donation-list-row" to={`/donor/donations/${donation.id}`}>
-      <span className="donation-food-icon">
-        <Utensils aria-hidden="true" size={18} />
-      </span>
-      <span className="donation-row-main">
-        <strong>{donation.itemName}</strong>
-        <span>
-          {donation.quantity} meals · {donation.createdAt}
+    <div className="donation-list-row">
+      <Link
+        className="donation-list-row-link"
+        to={`/donor/donations/${donation.id}`}
+      >
+        <span className="donation-food-icon">
+          <Utensils aria-hidden="true" size={18} />
         </span>
-      </span>
-      <span className="donation-row-recipient">
-        {getCurrentAllocation(donation)?.recipientName ??
-          donation.allocations[0]?.recipientName ??
-          "Unassigned"}
-      </span>
-      <StatusBadge
-        pendingMatch={isPendingMatch(donation)}
-        status={donation.status}
-      />
-      {received > 0 && (
-        <span className="donation-row-received">{received} received</span>
+        <span className="donation-row-main">
+          <strong>{donation.itemName}</strong>
+          <span>
+            {donation.quantity} meals · {donation.createdAt}
+          </span>
+        </span>
+        <span className="donation-row-recipient">
+          {getCurrentAllocation(donation)?.recipientName ??
+            donation.allocations[0]?.recipientName ??
+            "Unassigned"}
+        </span>
+        <StatusBadge
+          pendingMatch={isPendingMatch(donation)}
+          status={donation.status}
+        />
+        {received > 0 && (
+          <span className="donation-row-received">{received} received</span>
+        )}
+        <ArrowRight aria-hidden="true" className="donation-row-arrow" size={16} />
+      </Link>
+      {canEditDonation(donation) && (
+        <Link
+          aria-label={`Edit ${donation.itemName}`}
+          className="donation-row-edit"
+          title="Edit donation"
+          to={`/donor/donations/${donation.id}?edit=1`}
+        >
+          <Pencil aria-hidden="true" size={15} />
+        </Link>
       )}
-      <ArrowRight aria-hidden="true" className="donation-row-arrow" size={16} />
-    </Link>
+    </div>
   )
 }
 
@@ -1744,9 +1767,319 @@ function AllocationProgress({ donation }: { donation: DemoDonation }) {
   )
 }
 
+type DonationEditDraft = {
+  itemName: string
+  category: string
+  quantity: string
+  dietaryTags: string
+  declaredAllergens: string
+  allergenStatus: "DONOR_CONFIRMED" | "UNKNOWN" | "NOT_APPLICABLE"
+  preparedAt: string
+  storageCondition: string
+  pickupAvailableAt: string
+  usableUntil: string
+  confirmed: boolean
+}
+
+function toLocalDateTimeInput(value?: string): string {
+  if (!value) return ""
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return ""
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+  return local.toISOString().slice(0, 16)
+}
+
+function isAllergenStatus(
+  value: string,
+): value is DonationEditDraft["allergenStatus"] {
+  return (
+    value === "DONOR_CONFIRMED" ||
+    value === "UNKNOWN" ||
+    value === "NOT_APPLICABLE"
+  )
+}
+
+function DonationEditForm({
+  donation,
+  onCancel,
+  onSave,
+}: {
+  donation: DemoDonation
+  onCancel: () => void
+  onSave: (input: NewDonationInput) => Promise<void>
+}) {
+  const [draft, setDraft] = useState<DonationEditDraft>(() => ({
+    itemName: donation.itemName,
+    category: donation.category,
+    quantity: String(donation.quantity),
+    dietaryTags: donation.dietaryTags?.join(", ") ?? "",
+    declaredAllergens: donation.declaredAllergens?.join(", ") ?? "",
+    allergenStatus: donation.allergenStatus ?? "UNKNOWN",
+    preparedAt: toLocalDateTimeInput(donation.preparedAt),
+    storageCondition: donation.storageCondition ?? "refrigerated",
+    pickupAvailableAt: toLocalDateTimeInput(donation.pickupAvailableAt),
+    usableUntil: toLocalDateTimeInput(donation.usableUntilAt),
+    confirmed: false,
+  }))
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setError("")
+    const quantity = Number(draft.quantity)
+    if (!draft.itemName.trim() || !Number.isInteger(quantity) || quantity < 1) {
+      setError("Enter a food name and a whole meal quantity greater than zero.")
+      return
+    }
+    const preparedAt = new Date(draft.preparedAt)
+    const pickupAvailableAt = new Date(draft.pickupAvailableAt)
+    const usableUntil = new Date(draft.usableUntil)
+    if (
+      !Number.isFinite(preparedAt.getTime()) ||
+      !Number.isFinite(pickupAvailableAt.getTime()) ||
+      !Number.isFinite(usableUntil.getTime()) ||
+      preparedAt > pickupAvailableAt ||
+      pickupAvailableAt > usableUntil ||
+      usableUntil <= new Date()
+    ) {
+      setError("Set valid times in order: prepared, pickup available, then a future usable-until cutoff.")
+      return
+    }
+    if (!draft.confirmed) {
+      setError("Confirm that the updated food details and safety information are accurate.")
+      return
+    }
+    setSaving(true)
+    try {
+      await onSave({
+        itemName: draft.itemName.trim(),
+        category: draft.category,
+        quantity,
+        dietaryTags: draft.dietaryTags
+          .split(/[,;]/)
+          .map((item) => item.trim().toLowerCase())
+          .filter(Boolean),
+        declaredAllergens: draft.declaredAllergens
+          .split(/[,;]/)
+          .map((item) => item.trim().toLowerCase())
+          .filter(Boolean),
+        allergenStatus: draft.allergenStatus,
+        preparedAt: draft.preparedAt,
+        storageCondition: draft.storageCondition,
+        pickupAvailableAt: draft.pickupAvailableAt,
+        usableUntil: draft.usableUntil,
+        donorConfirmed: true,
+        allocations: [],
+      })
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Could not update this donation.",
+      )
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <>
+      <PageHeading
+        action={
+          <Button onClick={onCancel} type="button" variant="outline">
+            Cancel
+          </Button>
+        }
+        description="Update the food details, quantity, or timing before a recipient accepts."
+        eyebrow={
+          <Link className="back-link" to={`/donor/donations/${donation.id}`}>
+            ← Donation details
+          </Link>
+        }
+        title={`Edit ${donation.itemName}`}
+      />
+      <Card className="panel donation-edit-card">
+        <form className="donation-edit-form" onSubmit={(event) => void submit(event)}>
+          <div className="form-grid donation-edit-grid">
+            <label className="field-label">
+              Food name
+              <Input
+                maxLength={120}
+                onChange={(event) =>
+                  setDraft({ ...draft, itemName: event.target.value })
+                }
+                required
+                value={draft.itemName}
+              />
+            </label>
+            <label className="field-label">
+              Meal quantity
+              <Input
+                max={100000}
+                min={1}
+                onChange={(event) =>
+                  setDraft({ ...draft, quantity: event.target.value })
+                }
+                required
+                type="number"
+                value={draft.quantity}
+              />
+            </label>
+            <label className="field-label">
+              Food category
+              <div className="select-wrap">
+                <select
+                  className="field-input"
+                  onChange={(event) =>
+                    setDraft({ ...draft, category: event.target.value })
+                  }
+                  value={draft.category}
+                >
+                  <option>Prepared meals</option>
+                  <option>Bakery</option>
+                  <option>Produce</option>
+                  <option>Packaged food</option>
+                  <option>Other</option>
+                </select>
+              </div>
+            </label>
+            <label className="field-label">
+              Storage condition
+              <div className="select-wrap">
+                <select
+                  className="field-input"
+                  onChange={(event) =>
+                    setDraft({ ...draft, storageCondition: event.target.value })
+                  }
+                  value={draft.storageCondition}
+                >
+                  <option value="refrigerated">Refrigerated</option>
+                  <option value="hot-held">Hot-held</option>
+                  <option value="frozen">Frozen</option>
+                  <option value="room temperature">Room temperature</option>
+                </select>
+              </div>
+            </label>
+            <label className="field-label">
+              Prepared at
+              <Input
+                onChange={(event) =>
+                  setDraft({ ...draft, preparedAt: event.target.value })
+                }
+                required
+                type="datetime-local"
+                value={draft.preparedAt}
+              />
+            </label>
+            <label className="field-label">
+              Pickup available at
+              <Input
+                onChange={(event) =>
+                  setDraft({ ...draft, pickupAvailableAt: event.target.value })
+                }
+                required
+                type="datetime-local"
+                value={draft.pickupAvailableAt}
+              />
+            </label>
+            <label className="field-label">
+              Usable until
+              <Input
+                onChange={(event) =>
+                  setDraft({ ...draft, usableUntil: event.target.value })
+                }
+                required
+                type="datetime-local"
+                value={draft.usableUntil}
+              />
+            </label>
+            <label className="field-label">
+              Dietary tags
+              <Input
+                onChange={(event) =>
+                  setDraft({ ...draft, dietaryTags: event.target.value })
+                }
+                placeholder="e.g. vegetarian, halal"
+                value={draft.dietaryTags}
+              />
+            </label>
+            <label className="field-label field-span-2">
+              Declared allergens
+              <Input
+                onChange={(event) =>
+                  setDraft({ ...draft, declaredAllergens: event.target.value })
+                }
+                placeholder="Separate allergens with commas"
+                value={draft.declaredAllergens}
+              />
+            </label>
+            <label className="field-label">
+              Allergen information
+              <div className="select-wrap">
+                <select
+                  className="field-input"
+                  onChange={(event) => {
+                    const allergenStatus = event.target.value
+                    if (isAllergenStatus(allergenStatus)) {
+                      setDraft({ ...draft, allergenStatus })
+                    }
+                  }}
+                  value={draft.allergenStatus}
+                >
+                  <option value="UNKNOWN">Unknown</option>
+                  <option value="DONOR_CONFIRMED">Donor-confirmed</option>
+                  <option value="NOT_APPLICABLE">Not applicable</option>
+                </select>
+              </div>
+            </label>
+          </div>
+          <ReadinessNotice variant="warning">
+            <AlertTriangle aria-hidden="true" size={18} />
+            <span>
+              <strong>Saving cancels pending offers and recalculates the rescue.</strong>
+              <span>
+                A new offer will be sent only after the updated donation passes
+                recipient and route checks. Accepted donations cannot be edited.
+              </span>
+            </span>
+          </ReadinessNotice>
+          <label className="confirmation-control">
+            <input
+              checked={draft.confirmed}
+              onChange={(event) =>
+                setDraft({ ...draft, confirmed: event.target.checked })
+              }
+              type="checkbox"
+            />
+            <span>
+              I confirm the updated quantity, timing, storage, and food safety
+              details are accurate to the best of my knowledge.
+            </span>
+          </label>
+          {error && <p className="form-error" role="alert">{error}</p>}
+          <div className="donation-edit-actions">
+            <Button disabled={saving} onClick={onCancel} type="button" variant="outline">
+              Cancel
+            </Button>
+            <Button disabled={saving} type="submit">
+              {saving ? "Saving changes…" : "Save and rematch"}
+              {!saving && <ArrowRight aria-hidden="true" size={16} />}
+            </Button>
+          </div>
+        </form>
+      </Card>
+    </>
+  )
+}
+
 export function TrackDonationPage() {
   const { donationId } = useParams()
-  const { donations } = useDemoStore()
+  const { donations, updateDonation } = useDemoStore()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [editing, setEditing] = useState(
+    () => searchParams.get("edit") === "1",
+  )
   const reducedMotion = useReducedMotion() ?? false
   const transition = { duration: reducedMotion ? 0.12 : 0.2, ease: "easeOut" as const }
   const donation = donations.find((item) => item.id === donationId)
@@ -1764,11 +2097,48 @@ export function TrackDonationPage() {
     )
   }
 
+  if (editing && canEditDonation(donation)) {
+    return (
+      <DonationEditForm
+        donation={donation}
+        onCancel={() => {
+          setEditing(false)
+          const nextParams = new URLSearchParams(searchParams)
+          nextParams.delete("edit")
+          setSearchParams(nextParams, { replace: true })
+        }}
+        onSave={async (input) => {
+          await updateDonation(donation.id, input)
+          setEditing(false)
+          const nextParams = new URLSearchParams(searchParams)
+          nextParams.delete("edit")
+          setSearchParams(nextParams, { replace: true })
+        }}
+      />
+    )
+  }
+
   return (
     <>
       <PageHeading
         action={
-          <StatusBadge pendingMatch={pendingMatch} status={donation.status} />
+          <div className="donation-heading-actions">
+            {canEditDonation(donation) && (
+              <Button
+                onClick={() => {
+                  setEditing(true)
+                  const nextParams = new URLSearchParams(searchParams)
+                  nextParams.set("edit", "1")
+                  setSearchParams(nextParams, { replace: true })
+                }}
+                type="button"
+                variant="outline"
+              >
+                <Pencil aria-hidden="true" size={15} /> Edit donation
+              </Button>
+            )}
+            <StatusBadge pendingMatch={pendingMatch} status={donation.status} />
+          </div>
         }
         description={`${donation.quantity} meals · created ${donation.createdAt}`}
         eyebrow={<Link className="back-link" to="/donor/donations">← Donations</Link>}

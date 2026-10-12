@@ -245,7 +245,7 @@ const allocationStatuses: Record<string, DemoDonation["allocations"][number]["st
   DELIVERED: "RECEIVED",
   UNASSIGNED: "DECLINED",
   EXPIRED: "DECLINED",
-  CANCELLED: "DECLINED",
+  CANCELLED: "CANCELLED",
 }
 
 async function request<T>(
@@ -375,6 +375,16 @@ export async function loadDonation(donationId: string): Promise<DemoDonation> {
     `/donations/${encodeURIComponent(donationId)}`,
   )
   return mapDonation(donation)
+}
+
+export async function updateDonation(
+  donationId: string,
+  input: NewDonationInput,
+): Promise<ApiDonation> {
+  return request<ApiDonation>(`/donations/${encodeURIComponent(donationId)}`, {
+    method: "PUT",
+    body: JSON.stringify(toDonationPayload(input)),
+  })
 }
 
 export async function loadImpactSummary(): Promise<ApiImpactSummary> {
@@ -534,6 +544,9 @@ function mapDonation(donation: ApiDonationDetail): DemoDonation {
     category: categoryLabels[donation.category] ?? donation.category,
     quantity: donation.quantity,
     unit: "meals",
+    preparedAt: donation.preparedAt,
+    storageCondition: donation.storageCondition,
+    pickupAvailableAt: donation.pickupAvailableAt,
     createdAt: Number.isFinite(createdAt.getTime())
       ? createdAt.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
       : "Recently",
@@ -543,6 +556,13 @@ function mapDonation(donation: ApiDonationDetail): DemoDonation {
       minute: "2-digit",
     }),
     usableUntilAt: donation.usableUntil,
+    dietaryTags: donation.dietaryTags,
+    declaredAllergens: donation.declaredAllergens,
+    allergenStatus:
+      donation.allergenStatus === "DONOR_CONFIRMED" ||
+      donation.allergenStatus === "NOT_APPLICABLE"
+        ? donation.allergenStatus
+        : "UNKNOWN",
     status:
       status === "OFFERING" && isRelayed
         ? "RELAYED"

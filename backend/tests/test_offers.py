@@ -1,13 +1,15 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.api.errors import SecondServeError
 from app.config import get_settings
+from app.models.donation import DonationStatus
 from app.models.offer import Offer, OfferStatus
-from app.repositories.memory import InMemoryRepository
+from app.repositories.memory import InMemoryRepository, get_repository
 from app.services.offer_service import OfferService
+from app.services.route_service import RouteService
 from tests.conftest import demo_headers, demo_rescue_window
 
 
@@ -109,3 +111,133 @@ def test_offer_started_and_declined_relay_is_state_safe(client: TestClient) -> N
     assert details.status_code == 200
     assert details.json()["currentOffer"]["recipientId"] == "rcp-community"
     assert any(event["eventType"] == "OFFER_RELAYED" for event in details.json()["events"])
+
+
+def test_editing_active_donation_cancels_old_offer_and_rematches(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def estimate(self, _donor_id, _recipient_id, departure_at=None):
+        return {
+            "arrival_at": departure_at + timedelta(minutes=10),
+            "distance_meters": 1000,
+            "duration_seconds": 600,
+            "provider": "TEST_ROUTE",
+        }
+
+    def build_route(self, _donor_id, recipient_ids, _departure_at=None):
+        return {
+            "ordered_recipient_ids": recipient_ids,
+            "distance_meters": 1000,
+            "duration_seconds": 600,
+            "provider": "TEST_ROUTE",
+        }
+
+    monkeypatch.setattr(RouteService, "estimate", estimate)
+    monkeypatch.setattr(RouteService, "build_route", build_route)
+    now, pickup, cutoff = demo_rescue_window()
+    payload = {
+        "itemName": "Vegetarian pasta meal",
+        "category": "prepared_meal",
+        "quantity": 8,
+        "unit": "meals",
+        "dietaryTags": ["vegetarian"],
+        "declaredAllergens": [],
+        "allergenStatus": "NOT_APPLICABLE",
+        "donorConfirmed": True,
+        "preparedAt": now.isoformat(),
+        "storageCondition": "refrigerated",
+        "pickupAvailableAt": pickup.isoformat(),
+        "usableUntil": cutoff.isoformat(),
+    }
+    created = client.post(
+        "/api/v1/donations",
+        headers=demo_headers("demo-donor"),
+        json=payload,
+    )
+    donation_id = created.json()["donationId"]
+    plan = client.post(
+        f"/api/v1/donations/{donation_id}/rescue-plan",
+        headers=demo_headers("demo-donor"),
+    )
+    started = client.post(
+        f"/api/v1/rescue-plans/{plan.json()['planId']}/start",
+        headers=demo_headers("demo-donor"),
+    )
+    old_offer_id = started.json()["offerId"]
+
+    updated_payload = {
+        **payload,
+        "itemName": "Updated vegetarian pasta",
+        "quantity": 12,
+        "pickupAvailableAt": (pickup + timedelta(minutes=5)).isoformat(),
+    }
+    updated = client.put(
+        f"/api/v1/donations/{donation_id}",
+        headers=demo_headers("demo-donor"),
+        json=updated_payload,
+    )
+
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["itemName"] == "Updated vegetarian pasta"
+    assert updated.json()["quantity"] == 12
+    assert updated.json()["status"] == DonationStatus.OFFERING.value
+    assert get_repository().get_offer(old_offer_id).status == OfferStatus.CANCELLED
+
+
+def test_editing_is_locked_after_recipient_accepts(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def estimate(self, _donor_id, _recipient_id, departure_at=None):
+        return {
+            "arrival_at": departure_at + timedelta(minutes=10),
+            "distance_meters": 1000,
+            "duration_seconds": 600,
+            "provider": "TEST_ROUTE",
+        }
+
+    def build_route(self, _donor_id, recipient_ids, _departure_at=None):
+        return {
+            "ordered_recipient_ids": recipient_ids,
+            "distance_meters": 1000,
+            "duration_seconds": 600,
+            "provider": "TEST_ROUTE",
+        }
+
+    monkeypatch.setattr(RouteService, "estimate", estimate)
+    monkeypatch.setattr(RouteService, "build_route", build_route)
+    now, pickup, cutoff = demo_rescue_window()
+    payload = {
+        "itemName": "Vegetarian pasta meal",
+        "category": "prepared_meal",
+        "quantity": 8,
+        "unit": "meals",
+        "dietaryTags": ["vegetarian"],
+        "declaredAllergens": [],
+        "allergenStatus": "NOT_APPLICABLE",
+        "donorConfirmed": True,
+        "preparedAt": now.isoformat(),
+        "storageCondition": "refrigerated",
+        "pickupAvailableAt": pickup.isoformat(),
+        "usableUntil": cutoff.isoformat(),
+    }
+    created = client.post(
+        "/api/v1/donations",
+        headers=demo_headers("demo-donor"),
+        json=payload,
+    )
+    donation_id = created.json()["donationId"]
+    get_repository().update_donation(
+        donation_id,
+        status=DonationStatus.ACCEPTED,
+    )
+
+    response = client.put(
+        f"/api/v1/donations/{donation_id}",
+        headers=demo_headers("demo-donor"),
+        json=payload,
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "DONATION_NOT_EDITABLE"

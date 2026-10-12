@@ -25,6 +25,7 @@ import {
   saveDonationForMatching as saveDonationForMatchingRequest,
   respondToBackendOffer,
   submitBackendReceipt,
+  updateDonation as updateDonationRequest,
   type ApiFoodAnalysis,
   type ApiForecast,
   type ApiImpactSummary,
@@ -47,6 +48,10 @@ export interface DemoStoreValue {
   previewPlan: (input: NewDonationInput) => Promise<ApiRescuePlan>
   createDonation: (input: NewDonationInput) => Promise<string>
   saveDonationForMatching: (input: NewDonationInput) => Promise<string>
+  updateDonation: (
+    donationId: string,
+    input: NewDonationInput,
+  ) => Promise<void>
   updateRecipientProfile: (
     input: RecipientProfileUpdate,
   ) => Promise<ApiRecipientProfile>
@@ -169,6 +174,10 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
       const id = await saveDonationForMatchingRequest(input)
       await refresh()
       return id
+    },
+    async updateDonation(donationId, input) {
+      await updateDonationRequest(donationId, input)
+      await refresh()
     },
     async updateRecipientProfile(input) {
       const updatedProfile = await updateRecipientProfileRequest(input)

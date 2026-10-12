@@ -96,12 +96,23 @@ function Shell({
   const recipientItems = [
     { to: `/recipient/${recipientId}/offers`, label: "Offers", icon: HeartHandshake },
     { to: `/recipient/${recipientId}/capacity`, label: "Capacity & needs", icon: ClipboardList },
-    { to: `/recipient/${recipientId}/received`, label: "Received", icon: Utensils },
-    { to: `/recipient/${recipientId}/impact`, label: "Impact", icon: ChartColumn },
+    { to: `/recipient/${recipientId}/received`, label: "Received & impact", icon: Utensils },
   ]
   const items = recipient ? recipientItems : donorNav
   const location = useLocation()
   const current = items.find((item) => location.pathname.startsWith(item.to))
+  const pageContentClass = [
+    "page-content",
+    !recipient && location.pathname === "/donor/impact" && "page-content--impact",
+    recipient &&
+      location.pathname.endsWith("/capacity") &&
+      "page-content--recipient-capacity",
+    recipient &&
+      location.pathname.endsWith("/received") &&
+      "page-content--recipient-summary",
+  ]
+    .filter(Boolean)
+    .join(" ")
   const organizationName = profile?.organizationName ?? "Organization"
   const userName = profile?.displayName ?? profile?.organizationName ?? "Account"
 
@@ -192,7 +203,7 @@ function Shell({
             </div>
           </div>
         )}
-        <main className={`page-content${!recipient && location.pathname === "/donor/impact" ? " page-content--impact" : ""}`}>{children}</main>
+        <main className={pageContentClass}>{children}</main>
         <nav aria-label="Mobile primary navigation" className="mobile-nav">
           {items.map(({ to, label, icon: Icon }) => (
             <NavLink
