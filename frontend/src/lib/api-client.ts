@@ -190,6 +190,17 @@ export interface ApiRecipientProfile {
   allergenRestrictions: string[]
 }
 
+export type RecipientProfileUpdate = Pick<
+  ApiRecipientProfile,
+  | "timezone"
+  | "hours"
+  | "capacity"
+  | "unmetDemand"
+  | "acceptedCategories"
+  | "dietaryTags"
+  | "allergenRestrictions"
+>
+
 export interface DonationFormPayload {
   analysisId?: string
   itemName: string
@@ -410,6 +421,15 @@ export async function loadRecipientProfile(): Promise<ApiRecipientProfile> {
   return request<ApiRecipientProfile>("/recipients/me/profile")
 }
 
+export async function updateRecipientProfile(
+  profile: RecipientProfileUpdate,
+): Promise<ApiRecipientProfile> {
+  return request<ApiRecipientProfile>("/recipients/me/profile", {
+    method: "PUT",
+    body: JSON.stringify(profile),
+  })
+}
+
 export async function saveDonationForMatching(
   input: NewDonationInput,
 ): Promise<string> {
@@ -448,13 +468,7 @@ export async function createDonationAndStart(
     { method: "POST" },
   )
   if (!["FULL", "PARTIAL"].includes(plan.status)) {
-    throw new ApiError(
-      plan.status === "UNKNOWN"
-        ? "The rescue route could not be verified. No offer was started."
-        : "No eligible rescue plan was found. No offer was started.",
-      409,
-      `PLAN_${plan.status}`,
-    )
+    return created.donationId
   }
   await request("/rescue-plans/" + encodeURIComponent(plan.planId) + "/start", {
     method: "POST",
@@ -514,6 +528,7 @@ function mapDonation(donation: ApiDonationDetail): DemoDonation {
   const createdAt = new Date(donation.createdAt)
   return {
     id: donation.donationId,
+    backendStatus: donation.status,
     itemName: donation.itemName,
     donorName: donation.donorOrganizationName,
     category: categoryLabels[donation.category] ?? donation.category,
@@ -527,6 +542,7 @@ function mapDonation(donation: ApiDonationDetail): DemoDonation {
       hour: "numeric",
       minute: "2-digit",
     }),
+    usableUntilAt: donation.usableUntil,
     status:
       status === "OFFERING" && isRelayed
         ? "RELAYED"

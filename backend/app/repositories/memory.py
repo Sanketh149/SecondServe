@@ -68,6 +68,15 @@ class InMemoryRepository:
         self.recipients[recipient.recipient_id] = recipient
         return deepcopy(recipient)
 
+    def update_recipient(self, recipient_id: str, **changes: Any) -> Recipient | None:
+        recipient = self.recipients.get(recipient_id)
+        if recipient is None:
+            return None
+        for key, value in changes.items():
+            setattr(recipient, key, value)
+        recipient.updated_at = utc_now()
+        return deepcopy(recipient)
+
     def create_organization_profile(
         self,
         organization: Organization,

@@ -7,7 +7,11 @@ import {
 } from "react"
 import { DemoStoreContext } from "@/lib/demo-context"
 import { useAuth } from "@/lib/auth-context"
-import type { DemoDonation, NewDonationInput } from "@/lib/demo-data"
+import {
+  isPendingMatch,
+  type DemoDonation,
+  type NewDonationInput,
+} from "@/lib/demo-data"
 import {
   analyzeFoodImage,
   createDonationAndStart,
@@ -26,6 +30,8 @@ import {
   type ApiImpactSummary,
   type ApiRecipientProfile,
   type ApiRescuePlan,
+  updateRecipientProfile as updateRecipientProfileRequest,
+  type RecipientProfileUpdate,
 } from "@/lib/api-client"
 
 export interface DemoStoreValue {
@@ -41,6 +47,9 @@ export interface DemoStoreValue {
   previewPlan: (input: NewDonationInput) => Promise<ApiRescuePlan>
   createDonation: (input: NewDonationInput) => Promise<string>
   saveDonationForMatching: (input: NewDonationInput) => Promise<string>
+  updateRecipientProfile: (
+    input: RecipientProfileUpdate,
+  ) => Promise<ApiRecipientProfile>
   respondToOffer: (
     donationId: string,
     allocationId: string,
@@ -68,7 +77,7 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
     useState<ApiRecipientProfile | null>(null)
 
   const pendingMatchIds = donations
-    .filter((donation) => donation.status === "UNCLAIMED" && donation.allocations.length === 0)
+    .filter(isPendingMatch)
     .map((donation) => donation.id)
   const pendingMatchKey = pendingMatchIds.join("|")
   const matchRetryInFlight = useRef(false)
@@ -116,6 +125,8 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
       setApiError(null)
       try {
         for (const donationId of donationIds) {
+          const donation = donations.find((item) => item.id === donationId)
+          if (!donation || !isPendingMatch(donation)) continue
           const plan = await retryDonationMatchRequest(donationId)
           if (plan.status === "FULL" || plan.status === "PARTIAL") {
             await refresh()
@@ -136,7 +147,7 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
       active = false
       window.clearInterval(timer)
     }
-  }, [hasLoaded, pendingMatchKey, recipientRoute, refresh])
+  }, [donations, hasLoaded, pendingMatchKey, recipientRoute, refresh])
 
   const value: DemoStoreValue = {
     donations,
@@ -158,6 +169,11 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
       const id = await saveDonationForMatchingRequest(input)
       await refresh()
       return id
+    },
+    async updateRecipientProfile(input) {
+      const updatedProfile = await updateRecipientProfileRequest(input)
+      setRecipientProfile(updatedProfile)
+      return updatedProfile
     },
     async respondToOffer(donationId, allocationId, decision) {
       await respondToBackendOffer(donationId, allocationId, decision)

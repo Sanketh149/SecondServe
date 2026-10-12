@@ -11,7 +11,7 @@ import {
   Utensils,
 } from "lucide-react"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
-import { useState } from "react"
+import { useState, type FormEvent } from "react"
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom"
 import {
   MetricCard,
@@ -22,6 +22,10 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import type {
+  ApiRecipientProfile,
+  RecipientProfileUpdate,
+} from "@/lib/api-client"
 import {
   type DemoDonation,
 } from "@/lib/demo-data"
@@ -63,11 +67,55 @@ function formatRecipientHours(
   const entry = Object.entries(hours).find(([, ranges]) => ranges.length > 0)
   if (!entry) return "No open hours listed"
   const [day, ranges] = entry
+  const dayLabel = day.slice(0, 3).replace(/^./, (letter) => letter.toUpperCase())
   const [hour, minute] = ranges[0][1].split(":").map(Number)
+  if (hour === 0 && minute === 0 && ranges[0][0] === "00:00") {
+    return `${dayLabel} all day (${timeZone})`
+  }
   const period = hour >= 12 ? "PM" : "AM"
   const displayHour = hour % 12 || 12
-  const dayLabel = day.slice(0, 3).replace(/^./, (letter) => letter.toUpperCase())
   return `${dayLabel} until ${displayHour}:${String(minute).padStart(2, "0")} ${period} (${timeZone})`
+}
+
+const recipientDays = [
+  ["monday", "Monday"],
+  ["tuesday", "Tuesday"],
+  ["wednesday", "Wednesday"],
+  ["thursday", "Thursday"],
+  ["friday", "Friday"],
+  ["saturday", "Saturday"],
+  ["sunday", "Sunday"],
+] as const
+
+type RecipientProfileDraft = {
+  timezone: string
+  hours: Record<string, Array<[string, string]>>
+  capacity: string
+  unmetDemand: string
+  acceptedCategories: string[]
+  dietaryTags: string
+  allergenRestrictions: string
+}
+
+function profileDraft(
+  profile: ApiRecipientProfile,
+): RecipientProfileDraft {
+  return {
+    timezone: profile.timezone,
+    hours: Object.fromEntries(
+      recipientDays.map(([day]) => [
+        day,
+        (profile.hours[day] ?? []).map(
+          ([opens, closes]) => [opens, closes] as [string, string],
+        ),
+      ]),
+    ),
+    capacity: String(profile.capacity),
+    unmetDemand: String(profile.unmetDemand),
+    acceptedCategories: [...profile.acceptedCategories],
+    dietaryTags: profile.dietaryTags.join(", "),
+    allergenRestrictions: profile.allergenRestrictions.join(", "),
+  }
 }
 
 function RecipientOfferCard({ donation }: { donation: DemoDonation }) {
@@ -362,7 +410,12 @@ export function RecipientOffersPage() {
 
 export function RecipientCapacityPage() {
   const account = useRecipientAccount()
-  const { recipientProfile } = useDemoStore()
+  const { recipientProfile, updateRecipientProfile } = useDemoStore()
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState<RecipientProfileDraft | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
+  const [savedMessage, setSavedMessage] = useState("")
   if (!recipientProfile) {
     return (
       <>
@@ -389,12 +442,129 @@ export function RecipientCapacityPage() {
     recipientProfile.timezone,
   )
 
+  function beginEditing() {
+    setDraft(profileDraft(recipientProfile))
+    setError("")
+    setSavedMessage("")
+    setEditing(true)
+  }
+
+  function toggleCategory(category: string) {
+    setDraft((current) => {
+      if (!current) return current
+      const acceptedCategories = current.acceptedCategories.includes(category)
+        ? current.acceptedCategories.filter((item) => item !== category)
+        : [...current.acceptedCategories, category]
+      return { ...current, acceptedCategories }
+    })
+  }
+
+  function updateHours(day: string, ranges: Array<[string, string]>) {
+    setDraft((current) =>
+      current
+        ? { ...current, hours: { ...current.hours, [day]: ranges } }
+        : current,
+    )
+  }
+
+  async function saveProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!draft) return
+    setError("")
+    const capacity = Number(draft.capacity)
+    const unmetDemand = Number(draft.unmetDemand)
+    if (!Number.isInteger(capacity) || capacity < 1) {
+      setError("Meal capacity must be a whole number greater than zero.")
+      return
+    }
+    if (!Number.isInteger(unmetDemand) || unmetDemand < 0 || unmetDemand > capacity) {
+      setError("Current unmet need must be between zero and meal capacity.")
+      return
+    }
+    if (draft.acceptedCategories.length === 0) {
+      setError("Choose at least one accepted food category.")
+      return
+    }
+    for (const [day, ranges] of Object.entries(draft.hours)) {
+      const allDay =
+        ranges.length === 1 &&
+        ranges[0][0] === "00:00" &&
+        ranges[0][1] === "00:00"
+      if (allDay) continue
+      const parsed = ranges.map(([opens, closes]) => [opens, closes] as const)
+      if (
+        parsed.some(([opens, closes]) => !opens || !closes || opens >= closes) ||
+        parsed
+          .map(([opens, closes]) => [opens, closes] as const)
+          .sort(([firstOpen], [secondOpen]) => firstOpen.localeCompare(secondOpen))
+          .some(
+            ([opens], index, ordered) =>
+              index > 0 && opens < ordered[index - 1][1],
+          )
+      ) {
+        setError(`Check the opening periods for ${day}. They must be valid and not overlap.`)
+        return
+      }
+    }
+
+    const input: RecipientProfileUpdate = {
+      timezone: draft.timezone.trim(),
+      hours: draft.hours,
+      capacity,
+      unmetDemand,
+      acceptedCategories: draft.acceptedCategories,
+      dietaryTags: draft.dietaryTags
+        .split(/[,;]/)
+        .map((item) => item.trim().toLowerCase())
+        .filter(Boolean),
+      allergenRestrictions: draft.allergenRestrictions
+        .split(/[,;]/)
+        .map((item) => item.trim().toLowerCase())
+        .filter(Boolean),
+    }
+    setSaving(true)
+    try {
+      await updateRecipientProfile(input)
+      setEditing(false)
+      setDraft(null)
+      setSavedMessage("Organization capacity and readiness settings updated.")
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Could not update your recipient organization profile.",
+      )
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <>
       <PageHeading
         description="Recipient capacity and needs reported by your organization."
+        action={
+          editing ? (
+            <Button
+              onClick={() => {
+                setEditing(false)
+                setDraft(null)
+                setError("")
+              }}
+              type="button"
+              variant="outline"
+            >
+              Cancel
+            </Button>
+          ) : (
+            <Button onClick={beginEditing} type="button" variant="outline">
+              Edit profile
+            </Button>
+          )
+        }
         title="Capacity & needs"
       />
+      {savedMessage && <p className="recipient-profile-saved" role="status">{savedMessage}</p>}
       <ReadinessNotice variant="warning">
         <Info aria-hidden="true" size={18} />
         <span>
@@ -415,23 +585,254 @@ export function RecipientCapacityPage() {
               <p>Community organization · {hoursText}</p>
             </div>
           </div>
-          <div className="capacity-stat-grid">
-            <div><small>Meal capacity</small><strong>{recipientProfile.capacity}</strong></div>
-            <div><small>Current unmet need</small><strong>{recipientProfile.unmetDemand}</strong></div>
-            <div><small>Route distance</small><strong>Calculated per donation</strong></div>
-          </div>
-          <div className="panel-subheading"><h3>Accepted food categories</h3></div>
-          <div className="tag-options">
-            {acceptedCategories.map((tag) => (
-              <Badge key={tag} variant="success">{tag}</Badge>
-            ))}
-          </div>
-          <div className="panel-subheading"><h3>Recipient restrictions</h3></div>
-          <p className="body-copy">
-            {restrictions.length > 0
-              ? `Allergen exclusions: ${restrictions.join(", ")}.`
-              : "No allergen exclusions recorded. Unknown donor allergen information is not treated as compatible."}
-          </p>
+          {editing && draft ? (
+            <form className="recipient-profile-editor" onSubmit={(event) => void saveProfile(event)}>
+              <div className="auth-coordinate-grid">
+                <label className="field-label">
+                  Meal capacity
+                  <Input
+                    max={100000}
+                    min={1}
+                    onChange={(event) =>
+                      setDraft({ ...draft, capacity: event.target.value })
+                    }
+                    required
+                    type="number"
+                    value={draft.capacity}
+                  />
+                </label>
+                <label className="field-label">
+                  Current unmet need
+                  <Input
+                    max={100000}
+                    min={0}
+                    onChange={(event) =>
+                      setDraft({ ...draft, unmetDemand: event.target.value })
+                    }
+                    required
+                    type="number"
+                    value={draft.unmetDemand}
+                  />
+                </label>
+              </div>
+              <label className="field-label">
+                Accepted food categories
+                <span className="tag-options">
+                  {[
+                    ["prepared_meal", "Prepared meals"],
+                    ["bakery", "Bakery"],
+                    ["produce", "Produce"],
+                    ["packaged_food", "Packaged food"],
+                  ].map(([value, label]) => (
+                    <button
+                      aria-pressed={draft.acceptedCategories.includes(value)}
+                      className={`choice-chip${draft.acceptedCategories.includes(value) ? " choice-chip--selected" : ""}`}
+                      key={value}
+                      onClick={() => toggleCategory(value)}
+                      type="button"
+                    >
+                      {draft.acceptedCategories.includes(value) && (
+                        <CheckCircle2 aria-hidden="true" size={13} />
+                      )}
+                      {label}
+                    </button>
+                  ))}
+                </span>
+              </label>
+              <label className="field-label">
+                Dietary requirements
+                <Input
+                  onChange={(event) =>
+                    setDraft({ ...draft, dietaryTags: event.target.value })
+                  }
+                  placeholder="e.g. vegetarian, halal"
+                  value={draft.dietaryTags}
+                />
+              </label>
+              <label className="field-label">
+                Allergen exclusions
+                <Input
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      allergenRestrictions: event.target.value,
+                    })
+                  }
+                  placeholder="e.g. peanut, shellfish"
+                  value={draft.allergenRestrictions}
+                />
+              </label>
+              <label className="field-label">
+                Organization time zone
+                <Input
+                  onChange={(event) =>
+                    setDraft({ ...draft, timezone: event.target.value })
+                  }
+                  placeholder="e.g. America/Los_Angeles"
+                  required
+                  value={draft.timezone}
+                />
+              </label>
+              <div className="panel-subheading"><h3>Operating hours</h3></div>
+              <p className="field-hint">
+                Choose open days and set one or more opening periods for each.
+                These hours are used in recipient readiness checks.
+              </p>
+              <div className="recipient-hours-editor">
+                {recipientDays.map(([day, label]) => {
+                  const ranges = draft.hours[day] ?? []
+                  const allDay =
+                    ranges.length === 1 &&
+                    ranges[0][0] === "00:00" &&
+                    ranges[0][1] === "00:00"
+                  return (
+                    <div className="recipient-hours-day" key={day}>
+                      <div className="recipient-hours-day-header">
+                        <label className="recipient-hours-day-toggle">
+                          <input
+                            checked={ranges.length > 0}
+                            onChange={(event) =>
+                              updateHours(
+                                day,
+                                event.target.checked
+                                  ? [["09:00", "17:00"]]
+                                  : [],
+                              )
+                            }
+                            type="checkbox"
+                          />
+                          <span>{label}</span>
+                        </label>
+                        {ranges.length > 0 && (
+                          <label className="recipient-hours-all-day">
+                            <input
+                              checked={allDay}
+                              onChange={(event) =>
+                                updateHours(
+                                  day,
+                                  event.target.checked
+                                    ? [["00:00", "00:00"]]
+                                    : [["09:00", "17:00"]],
+                                )
+                              }
+                              type="checkbox"
+                            />
+                            <span>Available all day</span>
+                          </label>
+                        )}
+                      </div>
+                      {ranges.length > 0 ? (
+                        allDay ? (
+                          <span className="recipient-hours-closed">
+                            Open all day
+                          </span>
+                        ) : (
+                          <div className="recipient-hours-periods">
+                            {ranges.map(([opens, closes], index) => (
+                              <div
+                                className="recipient-hours-period"
+                                key={`${day}-${index}`}
+                              >
+                                <Input
+                                  aria-label={`${label} opening time, period ${index + 1}`}
+                                  onChange={(event) => {
+                                    const updated = [...ranges] as Array<
+                                      [string, string]
+                                    >
+                                    updated[index] = [event.target.value, closes]
+                                    updateHours(day, updated)
+                                  }}
+                                  required
+                                  type="time"
+                                  value={opens}
+                                />
+                                <span>to</span>
+                                <Input
+                                  aria-label={`${label} closing time, period ${index + 1}`}
+                                  onChange={(event) => {
+                                    const updated = [...ranges] as Array<
+                                      [string, string]
+                                    >
+                                    updated[index] = [opens, event.target.value]
+                                    updateHours(day, updated)
+                                  }}
+                                  required
+                                  type="time"
+                                  value={closes}
+                                />
+                                <Button
+                                  aria-label={`Remove ${label} period ${index + 1}`}
+                                  onClick={() =>
+                                    updateHours(
+                                      day,
+                                      ranges.filter(
+                                        (_, itemIndex) => itemIndex !== index,
+                                      ),
+                                    )
+                                  }
+                                  type="button"
+                                  variant="ghost"
+                                >
+                                  Remove
+                                </Button>
+                              </div>
+                            ))}
+                            <Button
+                              onClick={() =>
+                                updateHours(day, [
+                                  ...ranges,
+                                  ["", ""] as [string, string],
+                                ])
+                              }
+                              type="button"
+                              variant="outline"
+                            >
+                              Add hours
+                            </Button>
+                          </div>
+                        )
+                      ) : (
+                        <span className="recipient-hours-closed">Closed</span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+              {error && <p className="form-error" role="alert">{error}</p>}
+              <ReadinessNotice variant="info">
+                <Info aria-hidden="true" size={18} />
+                <span>
+                  <strong>Changes affect future readiness checks.</strong>
+                  <span>Existing offers and handoffs are not changed.</span>
+                </span>
+              </ReadinessNotice>
+              <div className="recipient-profile-actions">
+                <Button disabled={saving} type="submit">
+                  {saving ? "Saving profile…" : "Save changes"}
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <>
+              <div className="capacity-stat-grid">
+                <div><small>Meal capacity</small><strong>{recipientProfile.capacity}</strong></div>
+                <div><small>Current unmet need</small><strong>{recipientProfile.unmetDemand}</strong></div>
+                <div><small>Route distance</small><strong>Calculated per donation</strong></div>
+              </div>
+              <div className="panel-subheading"><h3>Accepted food categories</h3></div>
+              <div className="tag-options">
+                {acceptedCategories.map((tag) => (
+                  <Badge key={tag} variant="success">{tag}</Badge>
+                ))}
+              </div>
+              <div className="panel-subheading"><h3>Recipient restrictions</h3></div>
+              <p className="body-copy">
+                {restrictions.length > 0
+                  ? `Allergen exclusions: ${restrictions.join(", ")}.`
+                  : "No allergen exclusions recorded. Unknown donor allergen information is not treated as compatible."}
+              </p>
+            </>
+          )}
         </Card>
         <Card className="panel readiness-explainer">
           <div className="aside-icon"><MapPin aria-hidden="true" size={18} /></div>

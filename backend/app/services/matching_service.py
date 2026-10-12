@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.api import errors
@@ -198,6 +198,8 @@ class MatchingService:
         for start, end in recipient.hours.get(day, []):
             start_time = datetime.strptime(start, "%H:%M").time()
             end_time = datetime.strptime(end, "%H:%M").time()
+            if start_time == end_time == time.min:
+                return True
             if start_time <= end_time:
                 if start_time <= local_arrival.time() <= end_time:
                     return True

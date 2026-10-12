@@ -44,7 +44,7 @@ class RouteService:
         recipient = self.repository.get_recipient(recipient_id)
         if donor is None or recipient is None:
             return None
-        departure = self._utc(departure_at or datetime.now(timezone.utc))
+        departure = self._departure_time(departure_at)
         if self.settings.google_maps_api_key:
             result = self._compute_route(donor, recipient, departure)
             if result is None:
@@ -78,7 +78,7 @@ class RouteService:
         stops = [self.repository.get_recipient(recipient_id) for recipient_id in recipient_ids]
         if donor is None or any(stop is None for stop in stops):
             return None
-        departure = self._utc(departure_at or datetime.now(timezone.utc))
+        departure = self._departure_time(departure_at)
         if self.settings.google_maps_api_key:
             return self._compute_multi_stop_route(donor, stops, recipient_ids, departure)
         if not self.settings.demo_mode:
@@ -179,6 +179,12 @@ class RouteService:
         if not value.endswith("s"):
             raise ValueError("Google Routes returned an invalid duration")
         return int(float(value[:-1]))
+
+    @classmethod
+    def _departure_time(cls, value: datetime | None) -> datetime:
+        now = datetime.now(timezone.utc)
+        requested = cls._utc(value) if value is not None else now
+        return max(requested, now + timedelta(minutes=1))
 
     @staticmethod
     def _utc(value: datetime) -> datetime:

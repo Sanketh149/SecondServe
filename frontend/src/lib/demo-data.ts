@@ -30,6 +30,7 @@ export interface RescueAllocation {
 
 export interface DemoDonation {
   id: string
+  backendStatus?: string
   itemName: string
   donorName?: string
   category: string
@@ -37,6 +38,7 @@ export interface DemoDonation {
   unit: "meals"
   createdAt: string
   usableUntil: string
+  usableUntilAt?: string
   status: DonationStatus
   handoffCode: string
   responseWindowEndsAt?: string
@@ -48,6 +50,16 @@ export interface DemoDonation {
     payload: Record<string, unknown>
   }>
   allocations: RescueAllocation[]
+}
+
+export function isPendingMatch(donation: DemoDonation): boolean {
+  const cutoff = Date.parse(donation.usableUntilAt ?? "")
+  return (
+    donation.backendStatus === "OPEN" &&
+    donation.allocations.length === 0 &&
+    Number.isFinite(cutoff) &&
+    cutoff > Date.now()
+  )
 }
 
 export interface NewDonationInput {

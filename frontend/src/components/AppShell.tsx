@@ -258,7 +258,13 @@ export function PageHeading({
   )
 }
 
-export function StatusBadge({ status }: { status: DonationStatus }) {
+export function StatusBadge({
+  status,
+  pendingMatch = false,
+}: {
+  status: DonationStatus
+  pendingMatch?: boolean
+}) {
   const labels: Record<DonationStatus, string> = {
     OFFERING: "Offer in progress",
     RELAYED: "Relayed to next recipient",
@@ -278,20 +284,26 @@ export function StatusBadge({ status }: { status: DonationStatus }) {
     RECEIVED: "success",
     UNCLAIMED: "danger",
   }
-  return <Badge variant={variants[status]}>{labels[status]}</Badge>
+  return (
+    <Badge variant={pendingMatch ? "neutral" : variants[status]}>
+      {pendingMatch ? "Matching automatically" : labels[status]}
+    </Badge>
+  )
 }
 
 export function RescueTimeline({
   status,
+  pendingMatch = false,
 }: {
   status: DonationStatus
+  pendingMatch?: boolean
 }) {
   const reducedMotion = useReducedMotion() ?? false
   const stages = ["Listed", "Planned", "Offering", "Received"]
   const currentIndex =
     status === "RECEIVED" || status === "PARTIALLY_RECEIVED"
       ? 3
-      : status === "OFFERING" || status === "RELAYED" || status === "UNCLAIMED"
+      : status === "OFFERING" || status === "RELAYED" || (status === "UNCLAIMED" && !pendingMatch)
         ? 2
         : status === "ACCEPTED"
           ? 2
@@ -304,7 +316,9 @@ export function RescueTimeline({
         : status === "RELAYED"
           ? "Relayed"
           : status === "UNCLAIMED"
-            ? "Awaiting another recipient"
+            ? pendingMatch
+              ? "Matching pending"
+              : "Awaiting another recipient"
             : stages[currentIndex]
   const transition = {
     duration: reducedMotion ? 0.12 : 0.24,

@@ -30,6 +30,7 @@ import { Input } from "@/components/ui/input"
 import {
   getConfirmedQuantity,
   getCurrentAllocation,
+  isPendingMatch,
   type DemoDonation,
   type NewDonationInput,
 } from "@/lib/demo-data"
@@ -49,6 +50,9 @@ function getRecentWeekStarts(): Date[] {
 function formatStatusDescription(donation: DemoDonation): string {
   if (donation.status === "RECEIVED") return "All allocated meals were confirmed received"
   if (donation.status === "PARTIALLY_RECEIVED") return "Some meals are still unconfirmed"
+  if (isPendingMatch(donation)) {
+    return "Waiting for an eligible recipient"
+  }
   const active = getCurrentAllocation(donation)
   return active
     ? `${active.recipientName} · ${active.quantity} meals`
@@ -58,6 +62,13 @@ function formatStatusDescription(donation: DemoDonation): string {
 function getDonorNextAction(donation: DemoDonation) {
   const current = getCurrentAllocation(donation)
   const confirmed = getConfirmedQuantity(donation)
+  if (isPendingMatch(donation)) {
+    return {
+      variant: "info" as const,
+      title: "Waiting for an eligible recipient.",
+      description: "Your donation remains available for a match until the cutoff.",
+    }
+  }
   if (donation.status === "ACCEPTED") {
     return {
       variant: "success" as const,
@@ -131,7 +142,10 @@ function ActiveRescueCard({ donation }: { donation: DemoDonation }) {
               Created {donation.createdAt}
             </p>
           </div>
-          <StatusBadge status={donation.status} />
+          <StatusBadge
+            pendingMatch={isPendingMatch(donation)}
+            status={donation.status}
+          />
         </div>
         {current ? (
           <RouteMeta
@@ -151,7 +165,10 @@ function ActiveRescueCard({ donation }: { donation: DemoDonation }) {
             </span>
           </div>
         )}
-        <RescueTimeline status={donation.status} />
+        <RescueTimeline
+          pendingMatch={isPendingMatch(donation)}
+          status={donation.status}
+        />
         <div className="donor-next-action">
           <ReadinessNotice variant={nextAction.variant}>
             <span>
@@ -443,7 +460,10 @@ function DonationRow({ donation }: { donation: DemoDonation }) {
           donation.allocations[0]?.recipientName ??
           "Unassigned"}
       </span>
-      <StatusBadge status={donation.status} />
+      <StatusBadge
+        pendingMatch={isPendingMatch(donation)}
+        status={donation.status}
+      />
       {received > 0 && (
         <span className="donation-row-received">{received} received</span>
       )}
@@ -678,7 +698,12 @@ const steps = [
 
 export function NewDonationPage() {
   const navigate = useNavigate()
-  const { analyzeImage, createDonation, previewPlan } = useDemoStore()
+  const {
+    analyzeImage,
+    createDonation,
+    previewPlan,
+    saveDonationForMatching,
+  } = useDemoStore()
   const reducedMotion = useReducedMotion() ?? false
   const transition = { duration: reducedMotion ? 0.12 : 0.2, ease: "easeOut" as const }
   const [step, setStep] = useState(0)
@@ -894,27 +919,6 @@ export function NewDonationPage() {
       try {
         const preview = await previewPlan(donationInput())
         setPlanPreview(preview)
-        if (preview.status === "NONE" || preview.status === "UNKNOWN") {
-          const blockedReasons = new Set(
-            preview.notReadyCandidates.flatMap(
-              (candidate) => candidate.reasonCodes,
-            ),
-          )
-          if (preview.status === "UNKNOWN") {
-            setError("The backend could not verify a reliable route. No offer can be started.")
-          } else if (
-            draft.category === "Other" ||
-            (blockedReasons.size > 0 &&
-              [...blockedReasons].every((reason) => reason === "CATEGORY_NOT_ACCEPTED"))
-          ) {
-            setError(
-              "No current recipient accepts “Other.” Go back, choose one homogeneous food lot, and select Prepared meals, Bakery, Produce, or Packaged food.",
-            )
-          } else {
-            setError("The backend found no eligible recipient. Review the donor-entered cutoff, allergen details, and recipient readiness.")
-          }
-          return
-        }
       } catch (previewError) {
         setError(
           previewError instanceof Error
@@ -949,7 +953,11 @@ export function NewDonationPage() {
     if (!validateStep()) return
     setSubmitting(true)
     try {
-      const id = await createDonation(donationInput())
+      const hasFeasiblePlan =
+        planPreview?.status === "FULL" || planPreview?.status === "PARTIAL"
+      const id = hasFeasiblePlan
+        ? await createDonation(donationInput())
+        : await saveDonationForMatching(donationInput())
       navigate(`/donor/donations/${id}`)
     } catch (submitError) {
       setError(
@@ -1331,18 +1339,26 @@ export function NewDonationPage() {
                 </span>
               </ReadinessNotice>
               {planPreview && (
-                <ReadinessNotice variant={planPreview.status === "FULL" ? "success" : "warning"}>
+                <ReadinessNotice
+                  variant={planPreview.status === "FULL" ? "success" : "warning"}
+                >
                   <MapPin aria-hidden="true" size={18} />
                   <span>
                     <strong>
                       {planPreview.status === "FULL"
                         ? "Backend preview covers the full quantity."
-                        : `${planPreview.unallocatedQuantity} meals remain unallocated.`}
+                        : planPreview.status === "PARTIAL"
+                          ? `${planPreview.unallocatedQuantity} meals remain unallocated.`
+                          : planPreview.status === "UNKNOWN"
+                            ? "A route could not be verified yet."
+                            : "No eligible recipient is available yet."}
                     </strong>
                     <span>
-                      {planPreview.route
-                        ? `${planPreview.route.provider === "GOOGLE_ROUTES" ? "Google Routes" : "Route provider"} · ${Math.round((planPreview.route.durationSeconds ?? 0) / 60)} min · ${planPreview.route.distanceMeters ?? 0} m`
-                        : "The backend did not return a verified route."}
+                      {planPreview.status === "FULL" || planPreview.status === "PARTIAL"
+                        ? planPreview.route
+                          ? `${planPreview.route.provider === "GOOGLE_ROUTES" ? "Google Routes" : "Route provider"} · ${Math.round((planPreview.route.durationSeconds ?? 0) / 60)} min · ${planPreview.route.distanceMeters ?? 0} m`
+                          : "The backend did not return a verified route."
+                        : "You can save this donation now. No offer starts until a verified feasible match is found."}
                     </span>
                   </span>
                 </ReadinessNotice>
@@ -1392,13 +1408,9 @@ export function NewDonationPage() {
               <div className="review-section-heading">
                 <h3>Rescue plan</h3>
                 <Badge
-                  variant={
-                    planPreview?.status === "PARTIAL"
-                      ? "warning"
-                      : "success"
-                  }
+                  variant={planPreview?.status === "FULL" ? "success" : "warning"}
                 >
-                  `${planPreview?.status ?? "NOT CHECKED"}`
+                  {planPreview?.status ?? "NOT CHECKED"}
                 </Badge>
               </div>
               <div className="review-allocation-list">
@@ -1423,21 +1435,38 @@ export function NewDonationPage() {
                     <b>{item.quantity} meals</b>
                   </motion.div>
                 ))}
+                {planPreview &&
+                  planPreview.allocations.length === 0 && (
+                    <p className="panel-empty-note">
+                      No recipient is eligible right now. Save the donation and
+                      matching will retry automatically.
+                    </p>
+                  )}
               </div>
               {planPreview && (
                 <>
-                  <ReadinessNotice variant={planPreview.status === "FULL" ? "success" : "warning"}>
+                  <ReadinessNotice
+                    variant={
+                      planPreview.status === "FULL" ? "success" : "warning"
+                    }
+                  >
                     <MapPin aria-hidden="true" size={18} />
                     <span>
                       <strong>
                         {planPreview.status === "FULL"
                           ? "Backend preview covers the full quantity."
-                          : `${planPreview.unallocatedQuantity} meals remain unallocated.`}
+                          : planPreview.status === "PARTIAL"
+                            ? `${planPreview.unallocatedQuantity} meals remain unallocated.`
+                            : planPreview.status === "UNKNOWN"
+                              ? "A route could not be verified yet."
+                              : "No eligible recipient is available yet."}
                       </strong>
                       <span>
-                        {planPreview.route
-                          ? `${planPreview.route.provider === "GOOGLE_ROUTES" ? "Google Routes" : "Sample route"} · ${Math.round((planPreview.route.durationSeconds ?? 0) / 60)} min · ${planPreview.route.distanceMeters ?? 0} m`
-                          : "No route was returned for this plan."}
+                        {planPreview.status === "FULL" || planPreview.status === "PARTIAL"
+                          ? planPreview.route
+                            ? `${planPreview.route.provider === "GOOGLE_ROUTES" ? "Google Routes" : "Sample route"} · ${Math.round((planPreview.route.durationSeconds ?? 0) / 60)} min · ${planPreview.route.distanceMeters ?? 0} m`
+                            : "No route was returned for this plan."
+                          : "Save the donation now; no offer starts until a verified feasible match is found."}
                       </span>
                     </span>
                   </ReadinessNotice>
@@ -1454,6 +1483,20 @@ export function NewDonationPage() {
                   )}
                 </>
               )}
+              {planPreview &&
+                planPreview.status !== "FULL" &&
+                planPreview.status !== "PARTIAL" && (
+                  <ReadinessNotice variant="warning">
+                    <Clock3 aria-hidden="true" size={18} />
+                    <span>
+                      <strong>No verified recipient match yet</strong>
+                      <span>
+                        This donation will be saved without starting an offer.
+                        No offer starts until a verified, feasible match is found.
+                      </span>
+                    </span>
+                  </ReadinessNotice>
+                )}
               <ReadinessNotice variant="warning">
                 <AlertTriangle aria-hidden="true" size={18} />
                 <span>
@@ -1501,7 +1544,13 @@ export function NewDonationPage() {
               </Button>
             ) : (
               <Button disabled={submitting} onClick={() => void startRescue()} type="button">
-                {submitting ? "Starting…" : "Start rescue offers"}
+                {submitting
+                  ? planPreview?.status === "FULL" || planPreview?.status === "PARTIAL"
+                    ? "Starting…"
+                    : "Saving donation…"
+                  : planPreview?.status === "FULL" || planPreview?.status === "PARTIAL"
+                    ? "Start rescue offers"
+                    : "Save and keep matching"}
                 {!submitting && <ArrowRight aria-hidden="true" size={17} />}
               </Button>
             )}
@@ -1701,6 +1750,7 @@ export function TrackDonationPage() {
   const reducedMotion = useReducedMotion() ?? false
   const transition = { duration: reducedMotion ? 0.12 : 0.2, ease: "easeOut" as const }
   const donation = donations.find((item) => item.id === donationId)
+  const pendingMatch = donation ? isPendingMatch(donation) : false
   const active = donation ? getCurrentAllocation(donation) : undefined
   const confirmed = donation ? getConfirmedQuantity(donation) : 0
   const nextAction = donation ? getDonorNextAction(donation) : undefined
@@ -1717,7 +1767,9 @@ export function TrackDonationPage() {
   return (
     <>
       <PageHeading
-        action={<StatusBadge status={donation.status} />}
+        action={
+          <StatusBadge pendingMatch={pendingMatch} status={donation.status} />
+        }
         description={`${donation.quantity} meals · created ${donation.createdAt}`}
         eyebrow={<Link className="back-link" to="/donor/donations">← Donations</Link>}
         title={donation.itemName}
@@ -1730,7 +1782,10 @@ export function TrackDonationPage() {
               <Badge variant="neutral">Live rescue events</Badge>
             </div>
             <div className="tracking-panel-content">
-              <RescueTimeline status={donation.status} />
+              <RescueTimeline
+                pendingMatch={pendingMatch}
+                status={donation.status}
+              />
               <div className="tracking-event-list">
                 {donation.events?.length ? (
                   donation.events.map((event) => {
@@ -1799,7 +1854,9 @@ export function TrackDonationPage() {
         <aside className="tracking-side">
           <Card className="panel tracking-side-card">
             <div className="aside-icon"><MapPin aria-hidden="true" size={18} /></div>
-            <span className="side-card-kicker">CURRENT OFFER</span>
+            <span className="side-card-kicker">
+              {pendingMatch ? "MATCH STATUS" : "CURRENT OFFER"}
+            </span>
             <AnimatePresence initial={false} mode="wait">
               {active ? (
                 <motion.div
@@ -1868,8 +1925,19 @@ export function TrackDonationPage() {
                   key="no-active-offer"
                   transition={transition}
                 >
-                  <h3>No active offer</h3>
-                  <p>Offers are complete or awaiting manual review.</p>
+                  {pendingMatch ? (
+                    <>
+                      <h3>Searching for a recipient</h3>
+                      <p>
+                        No offer starts until a verified, feasible match is found.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <h3>No active offer</h3>
+                      <p>Offers are complete or awaiting manual review.</p>
+                    </>
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>

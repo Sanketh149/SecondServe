@@ -131,6 +131,9 @@ class FirestoreRepository:
     def create_recipient(self, recipient: Recipient) -> Recipient:
         return self._create("recipients", recipient)
 
+    def update_recipient(self, recipient_id: str, **changes: Any) -> Recipient | None:
+        return self._update("recipients", recipient_id, **changes)
+
     def create_organization_profile(
         self,
         organization: Organization,
