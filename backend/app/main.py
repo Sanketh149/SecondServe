@@ -8,11 +8,13 @@ from fastapi.responses import JSONResponse
 
 from app.api import (
     analysis,
+    assistant,
     donations,
     errors,
     forecast,
     health,
     impact,
+    network,
     offers,
     receipts,
     recipients,
@@ -54,10 +56,12 @@ app.include_router(health.router, prefix="/api/v1")
 app.include_router(users.router, prefix="/api/v1")
 app.include_router(donations.router, prefix="/api/v1")
 app.include_router(analysis.router, prefix="/api/v1")
+app.include_router(assistant.router, prefix="/api/v1")
 app.include_router(rescue_plans.router, prefix="/api/v1")
 app.include_router(offers.router, prefix="/api/v1")
 app.include_router(receipts.router, prefix="/api/v1")
 app.include_router(impact.router, prefix="/api/v1")
+app.include_router(network.router, prefix="/api/v1")
 app.include_router(forecast.router, prefix="/api/v1")
 app.include_router(tasks.router, prefix="/api/v1")
 app.include_router(recipients.router, prefix="/api/v1")

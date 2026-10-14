@@ -23,12 +23,14 @@ class ImpactSummary(BaseModel):
     rescued_meals: int
     receipts_count: int
     period: str
+    donor_reported_confirmed_weight_kg: float | None = None
 
 
 class ForecastResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", alias_generator=to_camel, populate_by_name=True)
     sample_size: int
     source: str
+    metric: str = "DONOR_SURPLUS"
     uses_baseline: bool = False
     insufficient_history: bool
     opportunities: list[ForecastOpportunity]

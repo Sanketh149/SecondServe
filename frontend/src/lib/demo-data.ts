@@ -37,6 +37,7 @@ export interface DemoDonation {
   category: string
   quantity: number
   unit: "meals"
+  estimatedTotalWeightKg?: number | null
   preparedAt?: string
   storageCondition?: string
   pickupAvailableAt?: string
@@ -48,6 +49,7 @@ export interface DemoDonation {
   allergenStatus?: "DONOR_CONFIRMED" | "UNKNOWN" | "NOT_APPLICABLE"
   status: DonationStatus
   handoffCode: string
+  currentOfferId?: string
   responseWindowEndsAt?: string
   expiryScheduled: boolean
   events?: Array<{
@@ -91,6 +93,7 @@ export interface NewDonationInput {
   itemName: string
   category: string
   quantity: number
+  estimatedTotalWeightKg?: number
   dietaryTags: string[]
   declaredAllergens: string[]
   allergenStatus: "DONOR_CONFIRMED" | "UNKNOWN" | "NOT_APPLICABLE"

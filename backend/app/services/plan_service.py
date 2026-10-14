@@ -29,6 +29,7 @@ class PlanService:
             category=request.category,
             quantity=request.quantity,
             unit=request.unit,
+            estimated_total_weight_kg=request.estimated_total_weight_kg,
             dietary_tags=request.dietary_tags,
             declared_allergens=request.declared_allergens,
             allergen_status=request.allergen_status,

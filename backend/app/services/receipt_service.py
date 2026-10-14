@@ -7,6 +7,7 @@ from app.models.donation import DonationStatus
 from app.models.events import Event
 from app.models.receipt import Receipt, ReceiptRequest
 from app.repositories.memory import InMemoryRepository
+from app.services.dynamic_matching_service import DynamicMatchingService
 from app.services.offer_service import OfferService
 from app.utils.ids import new_id
 from app.utils.security import hash_handoff_code
@@ -49,6 +50,15 @@ class ReceiptService:
             handoff_code_hash=None,
         )
         self.repository.delete_handoff_code(allocation_id)
+        recipient = self.repository.get_recipient(allocation.recipient_id)
+        if recipient is not None:
+            self.repository.update_recipient(
+                recipient.recipient_id,
+                unmet_demand=max(
+                    0,
+                    recipient.unmet_demand - request.quantity_received,
+                ),
+            )
         donation = self.repository.get_donation(allocation.donation_id)
         if donation is not None:
             confirmed = donation.confirmed_quantity + request.quantity_received
@@ -82,6 +92,9 @@ class ReceiptService:
             else:
                 status = DonationStatus.PARTIALLY_RESCUED
             self.repository.update_donation(donation.donation_id, status=status)
+        DynamicMatchingService(self.repository).refresh_for_recipient(
+            allocation.recipient_id
+        )
         return receipt
 
     def _recipient_ids_for_organization(self, organization_id: str) -> list[str]:

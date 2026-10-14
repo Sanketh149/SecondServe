@@ -93,6 +93,9 @@ class InMemoryRepository:
     def get_organization(self, organization_id: str) -> Organization | None:
         return deepcopy(self.organizations.get(organization_id))
 
+    def list_all_organizations(self) -> list[Organization]:
+        return deepcopy(list(self.organizations.values()))
+
     def get_recipient(self, recipient_id: str) -> Recipient | None:
         return deepcopy(self.recipients.get(recipient_id))
 
@@ -128,6 +131,9 @@ class InMemoryRepository:
 
     def list_all_donations(self) -> list[Donation]:
         return deepcopy(list(self.donations.values()))
+
+    def list_all_allocations(self) -> list[Allocation]:
+        return deepcopy(list(self.allocations.values()))
 
     def list_donations_for_recipient(self, recipient_id: str) -> list[Donation]:
         donation_ids = {
@@ -204,6 +210,16 @@ class InMemoryRepository:
         self.receipts[receipt.receipt_id] = receipt
         return deepcopy(receipt)
 
+    def list_all_receipts(self) -> list[Receipt]:
+        return deepcopy(list(self.receipts.values()))
+
+    def list_receipts_for_recipient(self, organization_id: str) -> list[Receipt]:
+        return deepcopy([
+            receipt
+            for receipt in self.receipts.values()
+            if receipt.recipient_organization_id == organization_id
+        ])
+
     def set_handoff_code(self, allocation_id: str, code: str) -> None:
         self.handoff_codes[allocation_id] = code
 
@@ -230,12 +246,41 @@ class InMemoryRepository:
             or receipt.donation_id in donation_ids
         ]
         if owned_donations:
+            confirmed_weight = sum(
+                (donation.estimated_total_weight_kg or 0)
+                * donation.confirmed_quantity
+                / donation.quantity
+                for donation in owned_donations
+                if donation.quantity > 0
+            )
+        else:
+            confirmed_weight = sum(
+                (donation.estimated_total_weight_kg or 0)
+                * receipt.quantity_received
+                / donation.quantity
+                for receipt in receipts
+                if (
+                    (donation := self.donations.get(receipt.donation_id))
+                    and donation.quantity > 0
+                )
+            )
+        if owned_donations:
             return {
                 "confirmed_quantity": sum(item.confirmed_quantity for item in owned_donations),
                 "receipts_count": sum(item.donation_id in donation_ids for item in receipts),
                 "period": "all-time",
+                "donor_reported_confirmed_weight_kg": round(confirmed_weight, 3)
+                if confirmed_weight > 0
+                else None,
             }
-        return {"confirmed_quantity": sum(receipt.quantity_received for receipt in receipts), "receipts_count": len(receipts), "period": "all-time"}
+        return {
+            "confirmed_quantity": sum(receipt.quantity_received for receipt in receipts),
+            "receipts_count": len(receipts),
+            "period": "all-time",
+            "donor_reported_confirmed_weight_kg": round(confirmed_weight, 3)
+            if confirmed_weight > 0
+            else None,
+        }
 
     def add_event(self, donation_id: str, event: Event) -> Event:
         if event.donation_id != donation_id:

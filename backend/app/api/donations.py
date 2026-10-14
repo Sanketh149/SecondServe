@@ -131,7 +131,8 @@ def create_donation(request: CreateDonationRequest, user: CurrentUser = Depends(
     donation = Donation(
         donation_id=new_id("dn"), donor_organization_id=user.organization_id,
         item_name=request.item_name, category=request.category, quantity=request.quantity,
-        unit=request.unit, dietary_tags=request.dietary_tags,
+        unit=request.unit, estimated_total_weight_kg=request.estimated_total_weight_kg,
+        dietary_tags=request.dietary_tags,
         declared_allergens=request.declared_allergens, allergen_status=request.allergen_status,
         prepared_at=as_utc(request.prepared_at), storage_condition=request.storage_condition,
         pickup_available_at=as_utc(request.pickup_available_at), usable_until=as_utc(request.usable_until),

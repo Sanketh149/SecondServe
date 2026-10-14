@@ -18,6 +18,7 @@ import {
   loadDonorDonations,
   loadForecast,
   loadImpactSummary,
+  loadNetworkInsights,
   loadRecipientDonations,
   loadRecipientProfile,
   previewRescuePlan,
@@ -26,9 +27,11 @@ import {
   respondToBackendOffer,
   submitBackendReceipt,
   updateDonation as updateDonationRequest,
+  updateRecipientPickupStatus,
   type ApiFoodAnalysis,
   type ApiForecast,
   type ApiImpactSummary,
+  type ApiNetworkInsights,
   type ApiRecipientProfile,
   type ApiRescuePlan,
   updateRecipientProfile as updateRecipientProfileRequest,
@@ -41,6 +44,7 @@ export interface DemoStoreValue {
   initialLoading: boolean
   apiError: string | null
   impactSummary: ApiImpactSummary | null
+  networkInsights: ApiNetworkInsights | null
   forecast: ApiForecast | null
   recipientProfile: ApiRecipientProfile | null
   refresh: () => Promise<void>
@@ -60,6 +64,10 @@ export interface DemoStoreValue {
     allocationId: string,
     decision: "ACCEPT" | "DECLINE",
   ) => Promise<void>
+  updatePickupStatus: (
+    offerId: string,
+    status: "EN_ROUTE" | "ARRIVED",
+  ) => Promise<void>
   submitReceipt: (
     donationId: string,
     allocationId: string,
@@ -77,6 +85,8 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
   const [hasLoaded, setHasLoaded] = useState(false)
   const [apiError, setApiError] = useState<string | null>(null)
   const [impactSummary, setImpactSummary] = useState<ApiImpactSummary | null>(null)
+  const [networkInsights, setNetworkInsights] =
+    useState<ApiNetworkInsights | null>(null)
   const [forecast, setForecast] = useState<ApiForecast | null>(null)
   const [recipientProfile, setRecipientProfile] =
     useState<ApiRecipientProfile | null>(null)
@@ -91,16 +101,24 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
     setLoading(true)
     setApiError(null)
     try {
-      const [loadedDonations, impact, loadedRecipientProfile, forecastResult] = await Promise.all([
+      const [
+        loadedDonations,
+        impact,
+        loadedRecipientProfile,
+        forecastResult,
+        loadedNetworkInsights,
+      ] = await Promise.all([
         recipientRoute ? loadRecipientDonations() : loadDonorDonations(),
         loadImpactSummary(),
         recipientRoute ? loadRecipientProfile() : Promise.resolve(null),
         loadForecast(),
+        loadNetworkInsights(),
       ])
       setDonations(loadedDonations)
       setImpactSummary(impact)
       setRecipientProfile(loadedRecipientProfile)
       setForecast(forecastResult)
+      setNetworkInsights(loadedNetworkInsights)
     } catch (error) {
       const message =
         error instanceof Error
@@ -160,6 +178,7 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
     initialLoading: loading && !hasLoaded,
     apiError,
     impactSummary,
+    networkInsights,
     forecast,
     recipientProfile,
     refresh,
@@ -186,6 +205,10 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
     },
     async respondToOffer(donationId, allocationId, decision) {
       await respondToBackendOffer(donationId, allocationId, decision)
+      await refresh()
+    },
+    async updatePickupStatus(offerId, status) {
+      await updateRecipientPickupStatus(offerId, status)
       await refresh()
     },
     async submitReceipt(_donationId, allocationId, handoffCode, quantityReceived) {

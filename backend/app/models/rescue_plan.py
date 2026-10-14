@@ -29,6 +29,8 @@ class AllocationPlan(BaseModel):
     readiness: ReadinessStatus
     estimated_arrival_at: datetime | None
     need_fit: float = Field(ge=0.0, le=1.0)
+    recipient_completion_rate: float | None = Field(default=None, ge=0.0, le=1.0)
+    completion_history_sample_size: int = Field(default=0, ge=0)
     reason_codes: list[str]
     fallback_candidates: list[dict[str, str | ReadinessStatus]] = Field(default_factory=list)
 

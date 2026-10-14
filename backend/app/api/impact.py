@@ -14,4 +14,7 @@ def impact_summary(user: CurrentUser = Depends(get_current_user)) -> ImpactSumma
         rescued_meals=data["confirmed_quantity"],
         receipts_count=data["receipts_count"],
         period=data["period"],
+        donor_reported_confirmed_weight_kg=data.get(
+            "donor_reported_confirmed_weight_kg"
+        ),
     )

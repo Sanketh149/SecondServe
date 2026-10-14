@@ -22,6 +22,8 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { NetworkInsightsPanel } from "@/components/NetworkInsightsPanel"
+import { RescueAssistantCard } from "@/components/RescueAssistantCard"
 import type {
   ApiRecipientProfile,
   RecipientProfileUpdate,
@@ -128,7 +130,7 @@ function RecipientOfferCard({ donation }: { donation: DemoDonation }) {
       item.recipientId === account.candidateId &&
       (item.status === "OFFERING" || item.status === "ACCEPTED"),
   )
-  const { respondToOffer, submitReceipt } = useDemoStore()
+  const { respondToOffer, updatePickupStatus, submitReceipt } = useDemoStore()
   const [handoffCode, setHandoffCode] = useState("")
   const [quantityReceived, setQuantityReceived] = useState(
     allocation?.quantity ?? 1,
@@ -139,6 +141,34 @@ function RecipientOfferCard({ donation }: { donation: DemoDonation }) {
 
   const currentAllocation = allocation
   const isAccepted = currentAllocation.status === "ACCEPTED"
+  const pickupEvents =
+    donation.events?.filter(
+      (event) =>
+        event.type === "PICKUP_STATUS_UPDATED" &&
+        event.payload.offerId === donation.currentOfferId,
+    ) ?? []
+  const lastPickupStatus = pickupEvents.at(-1)?.payload.status
+  const pickupStatus =
+    lastPickupStatus === "EN_ROUTE" || lastPickupStatus === "ARRIVED"
+      ? lastPickupStatus
+      : null
+
+  async function setPickupStatus(status: "EN_ROUTE" | "ARRIVED") {
+    if (!donation.currentOfferId) {
+      setError("Pickup coordination is not available for this offer. Refresh and try again.")
+      return
+    }
+    setError("")
+    try {
+      await updatePickupStatus(donation.currentOfferId, status)
+    } catch (pickupError) {
+      setError(
+        pickupError instanceof Error
+          ? pickupError.message
+          : "Could not update pickup status.",
+      )
+    }
+  }
 
   async function respond(decision: "ACCEPT" | "DECLINE") {
     setError("")
@@ -207,6 +237,7 @@ function RecipientOfferCard({ donation }: { donation: DemoDonation }) {
       <div className="offer-details-grid">
         <div><small>Quantity offered</small><strong>{currentAllocation.quantity} meals</strong></div>
         <div><small>Estimated arrival</small><strong>{currentAllocation.eta}</strong></div>
+        <div><small>Pickup available</small><strong>{donation.pickupAvailableAt ? new Date(donation.pickupAvailableAt).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }) : "See donor"}</strong></div>
         <div><small>Donor cutoff</small><strong>{donation.usableUntil}</strong></div>
       </div>
       <ReadinessNotice variant="info">
@@ -282,6 +313,41 @@ function RecipientOfferCard({ donation }: { donation: DemoDonation }) {
           key="handoff-form"
           transition={transition}
         >
+          <ReadinessNotice variant="info">
+            <Clock3 aria-hidden="true" size={17} />
+            <span>
+              <strong>
+                {pickupStatus === "ARRIVED"
+                  ? "You’ve marked that you arrived."
+                  : pickupStatus === "EN_ROUTE"
+                    ? "You’re on the way to the pickup."
+                    : "Coordinate your pickup in the app."}
+              </strong>
+              <span>
+                {pickupStatus === "ARRIVED"
+                  ? "Ask the donor for the handoff code and confirm only the quantity received."
+                  : "Update your travel status so the donor knows when you are heading over."}
+              </span>
+            </span>
+          </ReadinessNotice>
+          <div className="pickup-coordination-actions">
+            <Button
+              disabled={pickupStatus !== null}
+              onClick={() => void setPickupStatus("EN_ROUTE")}
+              type="button"
+              variant="outline"
+            >
+              Mark on the way
+            </Button>
+            <Button
+              disabled={pickupStatus === "ARRIVED"}
+              onClick={() => void setPickupStatus("ARRIVED")}
+              type="button"
+            >
+              Mark arrived
+            </Button>
+          </div>
+          {error && <p className="form-error" role="alert">{error}</p>}
           <div className="handoff-form-heading">
             <span className="success-circle"><CheckCircle2 aria-hidden="true" size={20} /></span>
             <div>
@@ -382,6 +448,7 @@ export function RecipientOffersPage() {
           <span>Rescue Relay sends the next offer only when the current step is answered or completed.</span>
         </span>
       </ReadinessNotice>
+      <RescueAssistantCard donationId={matchingDonations[0]?.id} />
       {matchingDonations.length > 0 ? (
         <div className="offer-list">
           {matchingDonations.map((donation) => (
@@ -901,7 +968,7 @@ export function RecipientReceivedPage() {
   const location = useLocation()
   const reducedMotion = useReducedMotion() ?? false
   const receiptConfirmation = getReceiptConfirmation(location.state)
-  const { donations, impactSummary, recipientProfile } = useDemoStore()
+  const { donations, impactSummary, recipientProfile, forecast } = useDemoStore()
   const receiptCount = donations.reduce(
     (total, donation) =>
       total +
@@ -994,7 +1061,51 @@ export function RecipientReceivedPage() {
           title="Active unmet need"
           value={`${recipientProfile?.unmetDemand ?? 0} meals`}
         />
+        <MetricCard
+          icon={<PackageCheck aria-hidden="true" size={17} />}
+          note="Proportional to confirmed meals; donor-reported weight"
+          title="Food weight received"
+          value={
+            impactSummary?.donorReportedConfirmedWeightKg == null
+              ? "Not reported"
+              : `${impactSummary.donorReportedConfirmedWeightKg.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg`
+          }
+        />
       </div>
+      <Card className="panel recipient-demand-forecast">
+        <div className="panel-heading">
+          <div>
+            <h2>Recipient demand outlook</h2>
+            <span className="panel-subtitle">
+              {forecast?.sampleSize
+                ? `Based on ${forecast.sampleSize} weeks of confirmed receipts`
+                : "Based on recipient-confirmed meal history"}
+            </span>
+          </div>
+          <Badge variant="neutral">
+            {forecast?.insufficientHistory ? "Building history" : "History-based"}
+          </Badge>
+        </div>
+        {forecast?.metric === "RECIPIENT_CONFIRMED_INTAKE" &&
+        forecast.opportunities.length > 0 ? (
+          <div className="recipient-demand-days">
+            {forecast.opportunities.map((day) => (
+              <div className="recipient-demand-day" key={day.weekday}>
+                <span>{day.weekday.slice(0, 3)}</span>
+                <strong>{day.predictedQuantity}</strong>
+                <small>meals</small>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="panel-empty-note">
+            More confirmed handoff history is needed before a reliable weekly
+            intake forecast is available. Current unmet need remains the live
+            recipient-entered value.
+          </p>
+        )}
+      </Card>
+      <NetworkInsightsPanel />
       <Card className="panel impact-receipt-table recipient-received-history">
         <div className="panel-heading">
           <h2>Recipient-confirmed deliveries</h2>

@@ -1,15 +1,15 @@
 # SecondServe — Locked Product & Build Specification
 
-**Version:** 1.0  
-**Status:** Locked for implementation  
-**Locked:** October 5, 2026  
+**Version:** 1.1
+**Status:** Expanded implementation scope
+**Updated:** October 14, 2026
 **Competition:** AI Builder Cup 2026  
 **Team:** 2 people — Frontend owner and Backend/AI owner  
 **Submission deadline:** October 18, 2026  
 **Target challenge:** Sustainability & Social Impact  
 **Primary cloud:** Google Cloud  
 
-This is the shared source of truth for both developers and their coding agents. The five approved signature features in Section 5 are committed scope, not optional additions. If implementation details are unclear, follow the API and acceptance criteria here rather than inventing a second contract.
+This is the shared source of truth for both developers and their coding agents. The core rescue workflow and the additional AI/network capabilities below are committed scope. If implementation details are unclear, follow this document and the API contract rather than inventing a second one.
 
 ---
 
@@ -77,7 +77,10 @@ These rules apply to the UI, API, AI prompts, matching logic, demo, and pitch:
 5. **Unknown route is not a successful feasibility check.** If a reliable route estimate cannot be obtained, show readiness as unknown and do not start automatic offers for that plan.
 6. **Matches are not rescues.** Meals/units count as rescued only after a recipient submits a valid receipt. Show offered, accepted, and received amounts separately.
 7. **Synthetic demo data is labelled.** Do not present seeded organizations, forecast examples, or demo deliveries as real community impact.
-8. **No speculative environmental claims.** Do not show carbon, water, or landfill savings without a clearly sourced calculation and assumptions. They are not required for this submission.
+8. **Impact weight is donor-reported.** Total donation weight is optional. Attribute weight to a receipt only in proportion to recipient-confirmed meal quantity, and label the value donor-reported.
+9. **No speculative environmental claims.** Do not show carbon, water, or landfill savings without measured inputs and clearly sourced factors. Do not infer weight from meal count.
+10. **Assistant guidance is contextual, not authoritative.** Ground it in the authenticated workspace facts, identify the records used, and never make food-safety, route, or completed-rescue claims beyond those facts.
+11. **Heatmaps are approximate.** Display coarse aggregated cells, not organization names or exact locations. The visualization uses only real active surplus and reported unmet need.
 
 ---
 
@@ -105,9 +108,14 @@ The scope is deliberately bounded so two developers can finish and demonstrate i
 - A split must conserve quantity exactly; no unit can be assigned twice or disappear from the plan.
 - A recipient gets one active offer at a time for a donation. Relay is sequential and idempotent.
 - Donor and recipient organizations are registered through Firebase-backed onboarding; rescue and forecast history comes from persisted records. Do not seed unlabeled synthetic activity into active workspaces.
-- A history-based opportunity forecast is included. It must report insufficient history rather than fabricate observations or display a success-shaped estimate.
+- Donor forecasts use persisted donation history, with the explicitly disclosed starting planning profile only where donor history is insufficient. Recipient intake forecasts use recipient-confirmed receipt history and report insufficient history instead of inventing demand observations.
+- Pending donations are re-evaluated when relevant recipient availability changes and by the existing donor-side retry. Accepted handoffs are never silently re-matched.
+- Pickup coordination is in-app: donor pickup window, recipient acceptance, recipient travel/arrival status, one-time code, and confirmed receipt. It is not a courier dispatch or live GPS system.
+- Repeat-partnership recommendations and matching history scores use actual recipient-confirmed records only.
+- Network heatmaps aggregate location into approximate cells and omit organization identities.
+- Optional donation weight is donor-entered; only its proportional share for confirmed receipts is included in impact.
 
-The following are not part of this submission: native apps, real-time driver tracking, payments, SMS/WhatsApp, a general-purpose AI chat assistant, voice donation entry, custom model training, complex multi-vehicle optimization, public recipient discovery, or unsubstantiated environmental-impact estimates.
+The following are not part of this submission: native apps, real-time driver tracking, courier dispatch, payments, SMS/WhatsApp, voice donation entry, custom model training, complex multi-vehicle optimization, public recipient discovery, or unsubstantiated environmental-impact estimates.
 
 ---
 
@@ -213,6 +221,55 @@ sum(allocation.quantity) + unallocatedQuantity = donation.quantity
 **Frontend owner:** Donor handoff-code view; recipient receipt form; receipt result; verified-impact dashboard and history.  
 **Backend owner:** Secure one-time code lifecycle, receipt validation, append-only event, idempotent aggregate update, impact queries.
 
+### 5.6 Predictive Rescue Planning
+
+- Donor surplus predictions use persisted donation history and the disclosed donor planning prior; do not create synthetic donations.
+- Recipient intake outlook uses only recipient-confirmed receipt history. It is a historical intake signal, not a promise of future deliveries or a substitute for the recipient's current unmet-need profile.
+- Require at least four weekly observations for a weekday before forecasting it from history. Otherwise return insufficient history and omit that forecast point.
+- Surface donor supply outlook, recipient intake outlook, current unmet need, and feasible matches as separate signals; do not imply a predicted quantity is already matched.
+
+### 5.7 Grounded AI Rescue Assistant
+
+- Donor and recipient can ask an operational question from their authenticated workspace.
+- Context may include the selected donor-owned donation, its current plan/readiness reasons, organization profile, or active recipient offers.
+- Gemini answers from the supplied context only. Identify the context sources in the response; if the record does not contain an answer, say so and point to the relevant app action.
+- Treat user-provided text and persisted food names as untrusted content. Never follow embedded instructions, expose credentials, or assert food safety, allergen absence, route availability, dispatch, or receipt completion.
+- If Vertex AI is unavailable, show an actionable error; do not substitute an invented canned answer.
+
+### 5.8 Dynamic Matching and Network Intelligence
+
+- The existing donor retry re-evaluates unmatched open donations. When recipient need, accepted categories, restrictions, hours, timezone, or capacity changes, immediately refresh eligible open donations and pending offers affected by that recipient.
+- Cancel and recalculate an unaccepted offer if its recipient's changed readiness makes the existing assignment stale. Never cancel or rematch an accepted allocation or confirmed receipt.
+- Recipient-confirmed completed allocation history may break otherwise equal readiness ties. Require at least three completed allocations before using completion rate; show the rate and sample count in the plan explanation.
+- Current route feasibility and donor cutoff remain hard checks and cannot be overridden by a historical score.
+
+### 5.9 In-App Pickup Coordination
+
+- The donor provides pickup availability and usable-until times.
+- Recipient acceptance confirms the donor-provided pickup window and creates a one-time handoff code.
+- Recipient may record `EN_ROUTE` and then `ARRIVED`; show the status in both organizations' donation timeline.
+- Handoff confirmation still requires the code and actual received quantity.
+- This feature does not dispatch a driver, access GPS, send SMS/push notifications, or guarantee a pickup.
+
+### 5.10 Recurring Partnership Recommendations
+
+- Recommend prior donor–recipient partners from actual receipt records only.
+- Show completed rescue count, recipient-confirmed meals, last confirmation, and a plain-language reason.
+- Do not present a recommendation as a reserved recurring schedule or standing commitment.
+
+### 5.11 Rescue Heatmap
+
+- Aggregate unexpired open surplus and current recipient-reported unmet need into approximate geographic cells.
+- Do not return organization names or exact organization coordinates in heatmap data.
+- Label the cell size and both surplus/need signals. If no real records exist, show an empty state; never seed fake heatmap points.
+
+### 5.12 Sustainability and Impact Analytics
+
+- Continue to count meals only from recipient-confirmed receipts.
+- Donors may optionally enter a weighed total donation weight in kilograms.
+- If supplied, attribute total weight proportionally to confirmed meals and label it **donor-reported**. Missing weights remain unavailable; do not infer kilograms from meal count.
+- Carbon, landfill, and water impacts remain out of scope without sourced conversion factors and appropriate measured inputs.
+
 ---
 
 ## 6. Main User Flows and Screens
@@ -220,7 +277,7 @@ sum(allocation.quantity) + unallocatedQuantity = donation.quantity
 ### Donor flow
 
 1. **Sign-in / role entry:** Firebase Authentication; role is read from the backend profile.
-2. **Donor dashboard:** Active donations, next actions, confirmed meals rescued, and a seeded recurring-opportunity card where data supports it.
+2. **Donor dashboard:** Active donations, next actions, donor-history supply forecast, network insights, and grounded AI rescue guidance.
 3. **Create donation:** Upload photo or continue manually.
 4. **Food Passport:** Review AI suggestions and explicitly confirm/edit fields.
 5. **Donation details:** Confirm pickup availability, donor-entered usable-until time, storage condition, and location.
@@ -236,6 +293,7 @@ sum(allocation.quantity) + unallocatedQuantity = donation.quantity
 2. See active offer, quantity, food details, cutoff, and route/arrival estimate.
 3. Accept or decline with an optional reason.
 4. For accepted food, enter the donor's one-time handoff code and actual quantity received.
+5. Optionally record on-the-way and arrived pickup statuses; confirm the receipt after handoff.
 5. See receipt confirmation and updated demand/capacity.
 
 ### Demo administrator
@@ -279,15 +337,20 @@ sum(allocation.quantity) + unallocatedQuantity = donation.quantity
 | `GET /api/v1/me` | Resolve authenticated user, role, and organization. | Authenticated |
 | `POST /api/v1/donations/analyze` | Multipart image upload and AI Food Passport suggestions. | Donor |
 | `POST /api/v1/donations` | Create a donation from donor-confirmed fields and an optional analysis ID. | Donor |
+| `PUT /api/v1/donations/{donationId}` | Update an editable, unaccepted donation and recalculate matching. Optional `estimatedTotalWeightKg` is donor-reported. | Owner donor |
 | `GET /api/v1/donations` | List current donor's donations. | Donor |
 | `GET /api/v1/donations/{donationId}` | Donation, current plan/allocations, and ordered event timeline. | Owner/assigned recipient |
 | `POST /api/v1/donations/{donationId}/rescue-plan` | Calculate and persist a plan preview; sends no offers. | Donor |
 | `POST /api/v1/rescue-plans/{planId}/start` | Start the first eligible offer. | Donor |
 | `GET /api/v1/recipients/me/offers` | Recipient's active and recent offers. | Recipient |
-| `POST /api/v1/offers/{offerId}/response` | Accept or decline an active offer. | Target recipient |
+| `PUT /api/v1/recipients/me/profile` | Update recipient readiness settings and refresh affected pending matches. | Recipient |
+| `POST /api/v1/recipients/me/offers/{offerId}/response` | Accept or decline an active offer. | Target recipient |
+| `POST /api/v1/recipients/me/offers/{offerId}/pickup-status` | Record an accepted recipient's `EN_ROUTE` or `ARRIVED` status; transitions are idempotent and cannot move backwards. | Target recipient |
 | `POST /api/v1/allocations/{allocationId}/receipt` | Submit a recipient-confirmed handoff receipt. | Target recipient |
 | `GET /api/v1/impact/summary` | Confirmed impact totals for the caller's organization. | Authenticated |
-| `GET /api/v1/forecast/opportunities` | History-based weekday opportunity forecast, with explicit insufficient-history response. | Donor/recipient |
+| `GET /api/v1/forecast/opportunities` | Donor surplus or recipient-confirmed intake forecast, with explicit insufficient-history response. | Donor/recipient |
+| `POST /api/v1/assistant/guidance` | Context-grounded rescue guidance for the authenticated workspace. | Donor/recipient |
+| `GET /api/v1/network/insights` | Coarse aggregated surplus/need heatmap cells and confirmed-history partner recommendations. | Donor/recipient |
 
 Cloud Tasks invokes an internal, authenticated offer-expiration handler. It is not a public frontend endpoint.
 
@@ -556,7 +619,7 @@ contracts/openapi.yaml
 - Cache route responses briefly by origin, destination sequence, and travel mode.
 - If Google Routes fails, return `UNKNOWN` readiness for affected plans and do not start offers.
 
-### History-based opportunity forecast
+### History-based surplus and recipient-intake forecast
 
 The donor dashboard forecasts donation quantity by weekday. New organizations
 start with a clearly identified built-in planning profile so the forecast surface
@@ -569,8 +632,19 @@ donor's persisted weekday donation history after at least four distinct weekly
 observations are available for a weekday; actual history replaces that weekday's
 starting estimate. Explain via an info affordance that estimates are guidance
 and update as history accumulates. Recipient accounts continue to receive an
-explicit insufficient-history response until recipient-demand history is
-modeled.
+explicit insufficient-history response until four weekly receipt observations
+exist for a weekday. Recipient intake is a historical confirmed-receipt signal,
+not a claim about unrecorded need; the live profile's unmet-demand value remains
+separate.
+
+### Donor-reported weight impact
+
+`estimatedTotalWeightKg` is an optional positive total weight for the full
+donation, entered by the donor from a weighing. It is never inferred from
+quantity. For a receipt, reported received weight is calculated as
+`totalDonationWeightKg * quantityReceived / donationQuantity`. The impact API
+returns null until at least one confirmed receipt has donor-reported weight;
+the UI labels any non-null value donor-reported.
 
 ---
 

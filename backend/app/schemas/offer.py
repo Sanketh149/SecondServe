@@ -1,3 +1,6 @@
+from datetime import datetime
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
@@ -22,3 +25,26 @@ class OfferDecisionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", alias_generator=to_camel, populate_by_name=True)
     decision: str
     reason: str | None = None
+
+
+class PickupStatusRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        alias_generator=to_camel,
+        populate_by_name=True,
+    )
+
+    status: Literal["EN_ROUTE", "ARRIVED"]
+
+
+class PickupStatusResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        alias_generator=to_camel,
+        populate_by_name=True,
+    )
+
+    offer_id: str
+    allocation_id: str
+    status: Literal["EN_ROUTE", "ARRIVED"]
+    updated_at: datetime

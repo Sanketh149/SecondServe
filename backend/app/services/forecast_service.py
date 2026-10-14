@@ -56,10 +56,11 @@ def _linear_forecast(points: list[tuple[int, float]], next_x: int) -> tuple[int,
     return round(prediction), round(confidence, 2)
 
 
-def _empty_forecast(source: str) -> dict:
+def _empty_forecast(source: str, metric: str) -> dict:
     return {
         "sample_size": 0,
         "source": source,
+        "metric": metric,
         "uses_baseline": False,
         "insufficient_history": True,
         "opportunities": [],
@@ -71,21 +72,38 @@ class ForecastService:
         self.repository = repository
 
     def for_user(self, user: CurrentUser) -> dict:
-        if user.role != Role.DONOR or not user.organization_id:
-            return _empty_forecast(FORECAST_SOURCE)
+        if user.role not in {Role.DONOR, Role.RECIPIENT} or not user.organization_id:
+            return _empty_forecast(FORECAST_SOURCE, "DONOR_SURPLUS")
 
         now = datetime.now(UTC)
-        history = [
-            donation
-            for donation in self.repository.list_donations(user.organization_id)
-            if donation.created_at >= now - timedelta(weeks=LOOKBACK_WEEKS)
-        ]
+        if user.role == Role.DONOR:
+            history = [
+                (donation.created_at, donation.quantity)
+                for donation in self.repository.list_donations(user.organization_id)
+                if donation.created_at >= now - timedelta(weeks=LOOKBACK_WEEKS)
+            ]
+            metric = "DONOR_SURPLUS"
+            source = FORECAST_SOURCE
+        else:
+            history = [
+                (receipt.confirmed_at, receipt.quantity_received)
+                for receipt in self.repository.list_receipts_for_recipient(
+                    user.organization_id
+                )
+                if receipt.confirmed_at >= now - timedelta(weeks=LOOKBACK_WEEKS)
+            ]
+            metric = "RECIPIENT_CONFIRMED_INTAKE"
+            source = "recipient_confirmed_intake_history_v1"
+
+        if user.role == Role.RECIPIENT and not history:
+            return _empty_forecast(source, metric)
+
         weekly: dict[str, dict[date, int]] = {}
-        for donation in history:
-            weekday = donation.created_at.strftime("%A")
-            week = _week_start(donation.created_at.date())
+        for occurred_at, quantity in history:
+            weekday = occurred_at.strftime("%A")
+            week = _week_start(occurred_at.date())
             buckets = weekly.setdefault(weekday, {})
-            buckets[week] = buckets.get(week, 0) + donation.quantity
+            buckets[week] = buckets.get(week, 0) + quantity
 
         opportunities = []
         sample_size = max((len(buckets) for buckets in weekly.values()), default=0)
@@ -93,6 +111,8 @@ class ForecastService:
         for weekday in WEEKDAYS:
             observations = sorted(weekly.get(weekday, {}).items())
             if len(observations) < MIN_WEEKLY_OBSERVATIONS:
+                if user.role == Role.RECIPIENT:
+                    continue
                 opportunities.append(
                     {
                         "weekday": weekday,
@@ -131,8 +151,22 @@ class ForecastService:
         uses_baseline = any(item["is_baseline"] for item in opportunities)
         return {
             "sample_size": sample_size,
-            "source": COMBINED_FORECAST_SOURCE if uses_baseline else FORECAST_SOURCE,
+            "source": (
+                COMBINED_FORECAST_SOURCE
+                if user.role == Role.DONOR and uses_baseline
+                else source
+            ),
+            "metric": metric,
             "uses_baseline": uses_baseline,
-            "insufficient_history": False,
+            "insufficient_history": (
+                not opportunities
+                or (
+                    user.role == Role.RECIPIENT
+                    and any(
+                        len(weekly.get(day, {})) < MIN_WEEKLY_OBSERVATIONS
+                        for day in WEEKDAYS
+                    )
+                )
+            ),
             "opportunities": opportunities,
         }

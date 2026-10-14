@@ -44,6 +44,8 @@ export interface ApiPlanAllocation {
   readiness: "READY" | "BLOCKED" | "UNKNOWN"
   estimatedArrivalAt: string | null
   needFit: number
+  recipientCompletionRate: number | null
+  completionHistorySampleSize: number
   reasonCodes: string[]
   fallbackCandidates: Array<{
     recipientId: string
@@ -100,6 +102,7 @@ interface ApiDonation {
   category: string
   quantity: number
   unit: string
+  estimatedTotalWeightKg: number | null
   dietaryTags: string[]
   declaredAllergens: string[]
   allergenStatus: string
@@ -149,6 +152,33 @@ export interface ApiImpactSummary {
   rescuedMeals: number
   receiptsCount: number
   period: string
+  donorReportedConfirmedWeightKg: number | null
+}
+
+export interface ApiNetworkInsights {
+  heatmapCellSizeKm: number
+  networkOrganizationCount: number
+  heatmapCells: Array<{
+    latitude: number
+    longitude: number
+    activeSurplusMeals: number
+    unmetNeedMeals: number
+    donorOrganizations: number
+    recipientOrganizations: number
+  }>
+  partnerships: Array<{
+    organizationName: string
+    completedRescues: number
+    confirmedMeals: number
+    lastConfirmedAt: string
+    reason: string
+  }>
+}
+
+export interface ApiGuidance {
+  answer: string
+  basedOn: string[]
+  limitations: string
 }
 
 export interface ApiUserProfile {
@@ -164,6 +194,7 @@ export interface ApiUserProfile {
 export interface ApiForecast {
   sampleSize: number
   source: string
+  metric: "DONOR_SURPLUS" | "RECIPIENT_CONFIRMED_INTAKE"
   usesBaseline: boolean
   insufficientHistory: boolean
   opportunities: Array<{
@@ -207,6 +238,7 @@ export interface DonationFormPayload {
   category: string
   quantity: number
   unit: string
+  estimatedTotalWeightKg?: number
   dietaryTags: string[]
   declaredAllergens: string[]
   allergenStatus: string
@@ -317,6 +349,9 @@ export function toDonationPayload(
     category: categoryMap[input.category] ?? input.category.toLowerCase(),
     quantity: input.quantity,
     unit: "meals",
+    ...(input.estimatedTotalWeightKg !== undefined
+      ? { estimatedTotalWeightKg: input.estimatedTotalWeightKg }
+      : {}),
     dietaryTags: input.dietaryTags,
     declaredAllergens:
       input.allergenStatus === "DONOR_CONFIRMED"
@@ -389,6 +424,23 @@ export async function updateDonation(
 
 export async function loadImpactSummary(): Promise<ApiImpactSummary> {
   return request<ApiImpactSummary>("/impact/summary")
+}
+
+export async function loadNetworkInsights(): Promise<ApiNetworkInsights> {
+  return request<ApiNetworkInsights>("/network/insights")
+}
+
+export async function askRescueAssistant(
+  question: string,
+  donationId?: string,
+): Promise<ApiGuidance> {
+  return request<ApiGuidance>("/assistant/guidance", {
+    method: "POST",
+    body: JSON.stringify({
+      question,
+      ...(donationId ? { donationId } : {}),
+    }),
+  })
 }
 
 export async function getMe(): Promise<ApiUserProfile> {
@@ -504,6 +556,19 @@ export async function respondToBackendOffer(
   })
 }
 
+export async function updateRecipientPickupStatus(
+  offerId: string,
+  status: "EN_ROUTE" | "ARRIVED",
+): Promise<void> {
+  await request(
+    `/recipients/me/offers/${encodeURIComponent(offerId)}/pickup-status`,
+    {
+      method: "POST",
+      body: JSON.stringify({ status }),
+    },
+  )
+}
+
 export async function submitBackendReceipt(
   allocationId: string,
   handoffCode: string,
@@ -544,6 +609,7 @@ function mapDonation(donation: ApiDonationDetail): DemoDonation {
     category: categoryLabels[donation.category] ?? donation.category,
     quantity: donation.quantity,
     unit: "meals",
+    estimatedTotalWeightKg: donation.estimatedTotalWeightKg,
     preparedAt: donation.preparedAt,
     storageCondition: donation.storageCondition,
     pickupAvailableAt: donation.pickupAvailableAt,
@@ -568,6 +634,7 @@ function mapDonation(donation: ApiDonationDetail): DemoDonation {
         ? "RELAYED"
         : status,
     handoffCode: donation.handoffCode ?? "",
+    currentOfferId: donation.currentOffer?.offerId,
     responseWindowEndsAt: donation.currentOffer?.expiresAt,
     expiryScheduled: donation.currentOffer?.expiryScheduled ?? false,
     events: donation.events.map((event) => ({
@@ -593,16 +660,24 @@ function eventDetail(
       return "Donor-entered food and cutoff details saved."
     case "RESCUE_PLAN_CREATED":
       return "Backend readiness and route checks completed."
+    case "DYNAMIC_REMATCH_TRIGGERED":
+      return "Recipient availability changed; the rescue plan was recalculated."
     case "OFFER_STARTED":
       return `First rescue offer sent${recipientName ? ` to ${recipientName}` : ""}.`
     case "OFFER_RELAYED":
       return `Offer relayed${recipientName ? ` to ${recipientName}` : " to the next recipient"}.`
     case "OFFER_ACCEPTED":
       return `${recipientName ?? "Recipient"} accepted the offer.`
+    case "PICKUP_WINDOW_CONFIRMED":
+      return "Recipient accepted the donor-provided pickup window."
     case "OFFER_DECLINED":
       return `${recipientName ?? "Recipient"} declined the offer.`
     case "OFFER_EXPIRED":
       return "The response window expired and the offer was relayed."
+    case "PICKUP_STATUS_UPDATED":
+      return payload.status === "ARRIVED"
+        ? "Recipient reported arrival at the pickup."
+        : "Recipient reported being on the way to the pickup."
     case "RECEIPT_CONFIRMED":
       return `${String(payload.quantityReceived ?? 0)} meals were recipient-confirmed.`
     default:

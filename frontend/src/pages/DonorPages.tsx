@@ -34,6 +34,8 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { NetworkInsightsPanel } from "@/components/NetworkInsightsPanel"
+import { RescueAssistantCard } from "@/components/RescueAssistantCard"
 import {
   getConfirmedQuantity,
   getCurrentAllocation,
@@ -342,6 +344,8 @@ export function DonorDashboardPage() {
           rescueRate={impact.rescueRate}
         />
       </div>
+      <NetworkInsightsPanel />
+      <RescueAssistantCard donationId={active?.id} />
     </>
   )
 }
@@ -406,6 +410,9 @@ function activityTitle(eventType: string): string {
     OFFER_ACCEPTED: "Offer accepted",
     OFFER_DECLINED: "Offer declined",
     OFFER_EXPIRED: "Offer expired",
+    PICKUP_WINDOW_CONFIRMED: "Pickup window confirmed",
+    PICKUP_STATUS_UPDATED: "Pickup status updated",
+    DYNAMIC_REMATCH_TRIGGERED: "Rescue plan refreshed",
     RECEIPT_CONFIRMED: "Receipt confirmed",
   }
   return titles[eventType] ?? eventType.toLowerCase().replaceAll("_", " ")
@@ -643,8 +650,12 @@ export function DonorImpactPage() {
             </div>
             <div className="breakdown-row">
               <span className="breakdown-icon breakdown-icon--muted"><Utensils aria-hidden="true" size={16} /></span>
-              <span><strong>Environmental impact</strong><small>No unsupported estimates shown</small></span>
-              <Badge variant="neutral">Not calculated</Badge>
+              <span><strong>Food weight confirmed</strong><small>Proportionate to recipient-reported quantities; weight supplied by donor</small></span>
+              <b>
+                {impactSummary?.donorReportedConfirmedWeightKg == null
+                  ? "Not reported"
+                  : `${impactSummary.donorReportedConfirmedWeightKg.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg`}
+              </b>
             </div>
           </div>
         </Card>
@@ -658,6 +669,7 @@ type DonationDraft = {
   itemName: string
   category: string
   quantity: number
+  estimatedTotalWeightKg: string
   quantityWasSuggested: boolean
   dietaryTags: string[]
   potentialAllergens: string
@@ -750,6 +762,7 @@ export function NewDonationPage() {
       itemName: "",
       category: "Prepared meals",
       quantity: 0,
+      estimatedTotalWeightKg: "",
       quantityWasSuggested: false,
       dietaryTags: [],
       potentialAllergens: "",
@@ -874,6 +887,9 @@ export function NewDonationPage() {
       itemName: draft.itemName,
       category: draft.category,
       quantity: draft.quantity,
+      ...(draft.estimatedTotalWeightKg.trim()
+        ? { estimatedTotalWeightKg: Number(draft.estimatedTotalWeightKg) }
+        : {}),
       dietaryTags: draft.dietaryTags,
       declaredAllergens: draft.potentialAllergens
         .split(/[,;]/)
@@ -903,6 +919,14 @@ export function NewDonationPage() {
       if (draft.quantity < 1) {
         setError("Enter the actual quantity to donate. The photo cannot determine the count.")
         quantityInputRef.current?.focus()
+        return false
+      }
+      if (
+        draft.estimatedTotalWeightKg.trim() &&
+        (!Number.isFinite(Number(draft.estimatedTotalWeightKg)) ||
+          Number(draft.estimatedTotalWeightKg) <= 0)
+      ) {
+        setError("If you enter a food weight, use a number greater than zero.")
         return false
       }
       setError("")
@@ -1213,6 +1237,30 @@ export function NewDonationPage() {
                     <span>meals</span>
                   </span>
                 </label>
+                <label className="field-label">
+                  Total food weight <span className="field-optional">Optional</span>
+                  <span className="field-hint field-hint--row">
+                    Enter the weighed total in kilograms to include donor-reported
+                    waste-impact analytics.
+                  </span>
+                  <span className="quantity-input-wrap">
+                    <Input
+                      max={100000}
+                      min={0.01}
+                      onChange={(event) =>
+                        updateDraft(
+                          "estimatedTotalWeightKg",
+                          event.target.value,
+                        )
+                      }
+                      placeholder="If weighed"
+                      step="0.01"
+                      type="number"
+                      value={draft.estimatedTotalWeightKg}
+                    />
+                    <span>kg</span>
+                  </span>
+                </label>
                 <div className="field-label field-span-2">
                   Dietary tags <span className="field-optional">Optional</span>
                   <div className="tag-options">
@@ -1452,7 +1500,18 @@ export function NewDonationPage() {
                     <span>
                       <strong>{item.recipientName}</strong>
                       <small>
-                        {item.reasonCodes.join(" · ").replaceAll("_", " ").toLowerCase()}
+                        {[
+                          ...item.reasonCodes,
+                          ...(item.completionHistorySampleSize >= 3 &&
+                          item.recipientCompletionRate !== null
+                            ? [
+                                `${Math.round(item.recipientCompletionRate * 100)}% confirmed-history completion`,
+                              ]
+                            : []),
+                        ]
+                          .join(" · ")
+                          .replaceAll("_", " ")
+                          .toLowerCase()}
                       </small>
                     </span>
                     <b>{item.quantity} meals</b>
@@ -1771,6 +1830,7 @@ type DonationEditDraft = {
   itemName: string
   category: string
   quantity: string
+  estimatedTotalWeightKg: string
   dietaryTags: string
   declaredAllergens: string
   allergenStatus: "DONOR_CONFIRMED" | "UNKNOWN" | "NOT_APPLICABLE"
@@ -1812,6 +1872,10 @@ function DonationEditForm({
     itemName: donation.itemName,
     category: donation.category,
     quantity: String(donation.quantity),
+    estimatedTotalWeightKg:
+      donation.estimatedTotalWeightKg != null
+        ? String(donation.estimatedTotalWeightKg)
+        : "",
     dietaryTags: donation.dietaryTags?.join(", ") ?? "",
     declaredAllergens: donation.declaredAllergens?.join(", ") ?? "",
     allergenStatus: donation.allergenStatus ?? "UNKNOWN",
@@ -1850,12 +1914,23 @@ function DonationEditForm({
       setError("Confirm that the updated food details and safety information are accurate.")
       return
     }
+    if (
+      draft.estimatedTotalWeightKg.trim() &&
+      (!Number.isFinite(Number(draft.estimatedTotalWeightKg)) ||
+        Number(draft.estimatedTotalWeightKg) <= 0)
+    ) {
+      setError("If you enter a food weight, use a number greater than zero.")
+      return
+    }
     setSaving(true)
     try {
       await onSave({
         itemName: draft.itemName.trim(),
         category: draft.category,
         quantity,
+        ...(draft.estimatedTotalWeightKg.trim()
+          ? { estimatedTotalWeightKg: Number(draft.estimatedTotalWeightKg) }
+          : {}),
         dietaryTags: draft.dietaryTags
           .split(/[,;]/)
           .map((item) => item.trim().toLowerCase())
@@ -1925,6 +2000,30 @@ function DonationEditForm({
                 type="number"
                 value={draft.quantity}
               />
+            </label>
+            <label className="field-label">
+              Total food weight <span className="field-optional">Optional</span>
+              <span className="field-hint field-hint--row">
+                Donor-entered weighed total, used only for proportionate impact
+                reporting.
+              </span>
+              <span className="quantity-input-wrap">
+                <Input
+                  max={100000}
+                  min={0.01}
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      estimatedTotalWeightKg: event.target.value,
+                    })
+                  }
+                  placeholder="If weighed"
+                  step="0.01"
+                  type="number"
+                  value={draft.estimatedTotalWeightKg}
+                />
+                <span>kg</span>
+              </span>
             </label>
             <label className="field-label">
               Food category

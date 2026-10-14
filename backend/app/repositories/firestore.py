@@ -125,6 +125,9 @@ class FirestoreRepository:
     def create_organization(self, organization: Organization) -> Organization:
         return self._create("organizations", organization)
 
+    def list_all_organizations(self) -> list[Organization]:
+        return self._list("organizations")
+
     def get_recipient(self, recipient_id: str) -> Recipient | None:
         return self._get("recipients", recipient_id)
 
@@ -217,6 +220,9 @@ class FirestoreRepository:
     def list_allocations_for_donation(self, donation_id: str) -> list[Allocation]:
         return self._list("allocations", "donationId", donation_id)
 
+    def list_all_allocations(self) -> list[Allocation]:
+        return self._list("allocations")
+
     def list_allocations_for_plan(self, plan_id: str) -> list[Allocation]:
         return self._list("allocations", "planId", plan_id)
 
@@ -255,6 +261,12 @@ class FirestoreRepository:
 
     def create_receipt(self, receipt: Receipt) -> Receipt:
         return self._create("receipts", receipt)
+
+    def list_all_receipts(self) -> list[Receipt]:
+        return self._list("receipts")
+
+    def list_receipts_for_recipient(self, organization_id: str) -> list[Receipt]:
+        return self._list("receipts", "recipientOrganizationId", organization_id)
 
     def set_handoff_code(self, allocation_id: str, code: str) -> None:
         if not self.settings.handoff_encryption_key:
@@ -317,12 +329,41 @@ class FirestoreRepository:
             for receipt in self._list("receipts", "donationId", donation_id)
         ]
         all_receipts = {receipt.receipt_id: receipt for receipt in [*receipts, *donor_receipts]}
+        donation_by_id = {donation.donation_id: donation for donation in owned}
+        if not owned:
+            donation_by_id = {
+                donation_id: donation
+                for receipt in receipts
+                if (
+                    (donation := self.get_donation(receipt.donation_id))
+                    is not None
+                )
+                for donation_id in [donation.donation_id]
+            }
+        confirmed_weight = sum(
+            (donation.estimated_total_weight_kg or 0)
+            * (
+                donation.confirmed_quantity
+                if owned
+                else sum(
+                    receipt.quantity_received
+                    for receipt in receipts
+                    if receipt.donation_id == donation.donation_id
+                )
+            )
+            / donation.quantity
+            for donation in donation_by_id.values()
+            if donation.quantity > 0
+        )
         return {
             "confirmed_quantity": sum(donation.confirmed_quantity for donation in owned)
             if owned
             else sum(receipt.quantity_received for receipt in receipts),
             "receipts_count": len(all_receipts),
             "period": "all-time",
+            "donor_reported_confirmed_weight_kg": round(confirmed_weight, 3)
+            if confirmed_weight > 0
+            else None,
         }
 
     def add_event(self, donation_id: str, event: Event) -> Event:

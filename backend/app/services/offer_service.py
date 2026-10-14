@@ -103,11 +103,26 @@ class OfferService:
 
         if decision == "ACCEPT":
             self.repository.update_allocation(allocation.allocation_id, status=AllocationStatus.ACCEPTED)
-            self.repository.update_donation(offer.donation_id, status=DonationStatus.ACCEPTED)
+            donation = self.repository.update_donation(
+                offer.donation_id,
+                status=DonationStatus.ACCEPTED,
+            )
             self._event(offer.donation_id, recipient_organization_id, "OFFER_ACCEPTED", {
                 "offerId": offer.offer_id,
                 "allocationId": allocation.allocation_id,
             })
+            if donation is not None:
+                self._event(
+                    offer.donation_id,
+                    recipient_organization_id,
+                    "PICKUP_WINDOW_CONFIRMED",
+                    {
+                        "offerId": offer.offer_id,
+                        "allocationId": allocation.allocation_id,
+                        "pickupAvailableAt": donation.pickup_available_at.isoformat(),
+                        "usableUntil": donation.usable_until.isoformat(),
+                    },
+                )
             return updated_offer
 
         self._event(offer.donation_id, recipient_organization_id, "OFFER_DECLINED", {
@@ -121,6 +136,99 @@ class OfferService:
             fallback_offer = self.start_next_planned_offer(allocation.plan_id)
         self._update_donation_after_transition(offer.donation_id, fallback_offer)
         return updated_offer
+
+    def update_pickup_status(
+        self,
+        offer_id: str,
+        recipient_organization_id: str,
+        next_status: str,
+    ) -> dict:
+        offer = self.repository.get_offer(offer_id)
+        if offer is None:
+            raise errors.SecondServeError(404, "OFFER_NOT_FOUND", "The offer was not found.")
+        allocation = self.repository.get_allocation(offer.allocation_id)
+        recipient = (
+            self.repository.get_recipient(allocation.recipient_id)
+            if allocation
+            else None
+        )
+        if allocation is None or recipient is None:
+            raise errors.SecondServeError(
+                409,
+                "ALLOCATION_NOT_FOUND",
+                "The pickup allocation could not be found.",
+            )
+        if recipient.organization_id != recipient_organization_id:
+            raise errors.SecondServeError(
+                403,
+                "FORBIDDEN",
+                "The pickup update is not assigned to this recipient.",
+            )
+        if (
+            offer.status != OfferStatus.ACCEPTED
+            or allocation.status != AllocationStatus.ACCEPTED
+        ):
+            raise errors.SecondServeError(
+                409,
+                "PICKUP_NOT_READY",
+                "Pickup status can be updated after the recipient accepts the offer.",
+            )
+        events = self.repository.list_events(offer.donation_id)
+        previous = next(
+            (
+                event.payload.get("status")
+                for event in reversed(events)
+                if event.event_type == "PICKUP_STATUS_UPDATED"
+                and event.payload.get("offerId") == offer_id
+            ),
+            None,
+        )
+        allowed = {
+            None: {"EN_ROUTE", "ARRIVED"},
+            "EN_ROUTE": {"EN_ROUTE", "ARRIVED"},
+            "ARRIVED": {"ARRIVED"},
+        }
+        if next_status not in allowed.get(previous, set()):
+            raise errors.SecondServeError(
+                409,
+                "PICKUP_STATUS_TRANSITION_INVALID",
+                "Pickup status can move from on the way to arrived, but cannot move backwards.",
+            )
+        if next_status == previous:
+            return {
+                "offer_id": offer_id,
+                "allocation_id": allocation.allocation_id,
+                "status": next_status,
+                "updated_at": next(
+                    event.occurred_at
+                    for event in reversed(events)
+                    if event.event_type == "PICKUP_STATUS_UPDATED"
+                    and event.payload.get("offerId") == offer_id
+                    and event.payload.get("status") == next_status
+                ),
+            }
+
+        now = utc_now()
+        self.repository.add_event(
+            offer.donation_id,
+            Event(
+                event_id=new_id("evt"),
+                actor_id=recipient_organization_id,
+                event_type="PICKUP_STATUS_UPDATED",
+                occurred_at=now,
+                payload={
+                    "offerId": offer_id,
+                    "allocationId": allocation.allocation_id,
+                    "status": next_status,
+                },
+            ),
+        )
+        return {
+            "offer_id": offer_id,
+            "allocation_id": allocation.allocation_id,
+            "status": next_status,
+            "updated_at": now,
+        }
 
     def start_next_planned_offer(self, plan_id: str) -> Offer | None:
         plan = self.repository.get_plan(plan_id)

@@ -13,7 +13,8 @@ handoffs count as rescued.
 
 ## Product scope
 
-The locked product scope includes five signature features:
+The current prototype combines five safety-critical rescue capabilities with
+history-based planning and network intelligence:
 
 1. **AI Food Passport** — present food-image suggestions with clear provenance
    for donor review; AI does not certify food safety.
@@ -25,6 +26,20 @@ The locked product scope includes five signature features:
    when an offer is declined or expires.
 5. **Recipient-Confirmed Rescue Receipt** — record the actual quantity received
    and count only that quantity toward impact.
+6. **Predictive planning** — forecast donor surplus and recipient-confirmed
+   incoming meal patterns from real history; display insufficient-history states.
+7. **AI Rescue Assistant** — answer operational questions from authenticated,
+   role-scoped workspace records, without certifying food safety or promising
+   routes and matches.
+8. **Dynamic matching and pickup coordination** — re-evaluate pending rescues
+   when recipient readiness changes; coordinate pickup-window acceptance,
+   on-the-way/arrived status, and the one-time handoff in the app.
+9. **Network insights** — recommend repeat partners from confirmed receipts,
+   show coarse aggregated surplus/need heatmap cells, and use completed
+   recipient outcomes as an explainable matching tie-breaker.
+10. **Measured impact** — optionally record donor-reported total weight and
+    attribute only the confirmed-meal proportion to received weight. No
+    default meal-to-weight or carbon conversion is presented as measured fact.
 
 See [FINAL_SPEC.md](FINAL_SPEC.md) for the locked requirements, safety rules,
 API/data contracts, technical architecture, team ownership, and acceptance
@@ -123,12 +138,16 @@ images are ready to insert into a presentation or Google Doc.
 ## Implementation status
 
 The repository includes Firebase sign-in and organization onboarding, a
-Firestore-backed API, Gemini food-image suggestions, backend rescue-plan
-preview and offers, encrypted handoff codes, recipient-confirmed receipts,
-history-based forecast responses, and GCS staging for analyzed images. Local
+Firestore-backed API, Gemini food-image suggestions and grounded rescue
+guidance, backend rescue-plan preview and dynamic offers, encrypted handoff
+codes, pickup-status coordination, recipient-confirmed receipts, donor-surplus
+and recipient-intake history forecasts, repeat-partner recommendations,
+coarse network heatmaps, history-aware matching, donor-reported weight impact,
+and GCS staging for analyzed images. Local
 backend and frontend build/test checks are available below. Cloud Run and
-Firebase Hosting deployment, Cloud Tasks expiry callbacks, and a fresh-user
-end-to-end browser run remain separate verification/deployment steps.
+Firebase Hosting deployment and Cloud Tasks expiry callbacks remain
+separate verification/deployment steps. The prototype does not dispatch
+third-party drivers or send SMS/push notifications.
 
 ## Team ownership
 

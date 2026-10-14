@@ -7,6 +7,8 @@ from app.repositories.memory import get_repository
 from app.schemas.offer import (
     OfferDecisionRequest,
     OfferListResponse,
+    PickupStatusRequest,
+    PickupStatusResponse,
 )
 from app.schemas.offer import (
     OfferResponse as OfferSchema,
@@ -41,4 +43,19 @@ def respond_to_offer(
         user.organization_id,
         body.decision,
         body.reason,
+    )
+
+
+@router.post("/{offer_id}/pickup-status", response_model=PickupStatusResponse)
+def update_pickup_status(
+    offer_id: str,
+    body: PickupStatusRequest,
+    user: CurrentUser = Depends(require_role("recipient")),
+) -> PickupStatusResponse:
+    return PickupStatusResponse(
+        **OfferService(get_repository()).update_pickup_status(
+            offer_id,
+            user.organization_id,
+            body.status,
+        )
     )

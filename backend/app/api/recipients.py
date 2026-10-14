@@ -9,6 +9,7 @@ from app.schemas.recipient import (
     RecipientProfileResponse,
     UpdateRecipientProfileRequest,
 )
+from app.services.dynamic_matching_service import DynamicMatchingService
 
 router = APIRouter(prefix="/recipients")
 
@@ -54,6 +55,19 @@ def update_my_recipient_profile(
             "RECIPIENT_PROFILE_NOT_FOUND",
             "No recipient profile is configured for this organization.",
         )
+    matching_fields = (
+        "timezone",
+        "hours",
+        "capacity",
+        "unmet_demand",
+        "accepted_categories",
+        "dietary_tags",
+        "allergen_restrictions",
+    )
+    readiness_changed = any(
+        getattr(recipient, field) != getattr(request, field)
+        for field in matching_fields
+    )
     updated = repository.update_recipient(
         recipient.recipient_id,
         timezone=request.timezone,
@@ -69,5 +83,9 @@ def update_my_recipient_profile(
             404,
             "RECIPIENT_PROFILE_NOT_FOUND",
             "No recipient profile is configured for this organization.",
+        )
+    if readiness_changed:
+        DynamicMatchingService(repository).refresh_for_recipient(
+            updated.recipient_id
         )
     return updated

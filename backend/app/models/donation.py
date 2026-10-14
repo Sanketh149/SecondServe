@@ -29,6 +29,7 @@ class Donation(TimestampModel):
     category: str
     quantity: int = Field(gt=0)
     unit: str
+    estimated_total_weight_kg: float | None = Field(default=None, gt=0, le=100_000)
     dietary_tags: list[str]
     declared_allergens: list[str]
     allergen_status: AllergenStatus
@@ -50,6 +51,7 @@ class CreateDonationRequest(BaseModel):
     category: str
     quantity: int = Field(gt=0)
     unit: str
+    estimated_total_weight_kg: float | None = Field(default=None, gt=0, le=100_000)
     dietary_tags: list[str] = Field(default_factory=list)
     declared_allergens: list[str] = Field(default_factory=list)
     allergen_status: AllergenStatus

@@ -38,6 +38,7 @@ class MatchingService:
         ready: list[tuple[AllocationPlan, Recipient]] = []
         blocked: list[dict] = []
         unknown_candidate = False
+        completion_history = self._completion_history_by_recipient()
         for recipient in self.repository.list_recipients():
             reasons = self._recipient_reasons(recipient, donation)
             if reasons:
@@ -81,6 +82,18 @@ class MatchingService:
                 continue
 
             available = min(recipient.capacity, recipient.unmet_demand)
+            completion_rate, history_count = completion_history.get(
+                recipient.recipient_id,
+                (None, 0),
+            )
+            reason_codes = [
+                "HIGH_UNMET_NEED",
+                "CAPACITY_FITS",
+                "OPEN_AT_ARRIVAL",
+                "ARRIVES_BEFORE_CUTOFF",
+            ]
+            if history_count >= 3 and completion_rate is not None:
+                reason_codes.append("RECIPIENT_HISTORY_AVAILABLE")
             ready.append(
                 (
                     AllocationPlan(
@@ -91,12 +104,9 @@ class MatchingService:
                         readiness=ReadinessStatus.READY,
                         estimated_arrival_at=arrival,
                         need_fit=min(1.0, recipient.unmet_demand / donation.quantity),
-                        reason_codes=[
-                            "HIGH_UNMET_NEED",
-                            "CAPACITY_FITS",
-                            "OPEN_AT_ARRIVAL",
-                            "ARRIVES_BEFORE_CUTOFF",
-                        ],
+                        recipient_completion_rate=completion_rate,
+                        completion_history_sample_size=history_count,
+                        reason_codes=reason_codes,
                         fallback_candidates=[],
                     ),
                     recipient,
@@ -107,6 +117,12 @@ class MatchingService:
             key=lambda item: (
                 -item[0].quantity,
                 -item[0].need_fit,
+                -(
+                    item[0].recipient_completion_rate
+                    if item[0].completion_history_sample_size >= 3
+                    and item[0].recipient_completion_rate is not None
+                    else 0.0
+                ),
                 item[0].estimated_arrival_at or datetime.max.replace(tzinfo=timezone.utc),
             )
         )
@@ -188,6 +204,25 @@ class MatchingService:
         ):
             reasons.append("ALLERGEN_RESTRICTED")
         return reasons
+
+    def _completion_history_by_recipient(
+        self,
+    ) -> dict[str, tuple[float | None, int]]:
+        totals: dict[str, list[int]] = {}
+        for allocation in self.repository.list_all_allocations():
+            if allocation.status.value != "DELIVERED":
+                continue
+            value = totals.setdefault(allocation.recipient_id, [0, 0, 0])
+            value[0] += allocation.quantity
+            value[1] += allocation.confirmed_quantity
+            value[2] += 1
+        return {
+            recipient_id: (
+                confirmed / allocated if allocated > 0 else None,
+                sample_size,
+            )
+            for recipient_id, (allocated, confirmed, sample_size) in totals.items()
+        }
 
     def _is_open_at(self, recipient: Recipient, arrival: datetime) -> bool:
         try:

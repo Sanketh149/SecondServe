@@ -10,6 +10,7 @@ def test_donor_to_recipient_confirmed_receipt_flow(client: TestClient) -> None:
         "category": "prepared_meal",
         "quantity": 8,
         "unit": "meals",
+        "estimatedTotalWeightKg": 12.5,
         "dietaryTags": ["vegetarian"],
         "declaredAllergens": [],
         "allergenStatus": "NOT_APPLICABLE",
@@ -79,6 +80,26 @@ def test_donor_to_recipient_confirmed_receipt_flow(client: TestClient) -> None:
     )
     assert accepted.status_code == 200, accepted.text
 
+    on_the_way = client.post(
+        f"/api/v1/recipients/me/offers/{offer_id}/pickup-status",
+        headers=demo_headers("demo-hope"),
+        json={"status": "EN_ROUTE"},
+    )
+    assert on_the_way.status_code == 200, on_the_way.text
+    arrived = client.post(
+        f"/api/v1/recipients/me/offers/{offer_id}/pickup-status",
+        headers=demo_headers("demo-hope"),
+        json={"status": "ARRIVED"},
+    )
+    assert arrived.status_code == 200, arrived.text
+    assert arrived.json()["status"] == "ARRIVED"
+    duplicate_arrived = client.post(
+        f"/api/v1/recipients/me/offers/{offer_id}/pickup-status",
+        headers=demo_headers("demo-hope"),
+        json={"status": "ARRIVED"},
+    )
+    assert duplicate_arrived.status_code == 200
+
     allocation_id = plan.json()["allocations"][0]["allocationId"]
     bad_receipt = client.post(
         f"/api/v1/allocations/{allocation_id}/receipt",
@@ -103,6 +124,29 @@ def test_donor_to_recipient_confirmed_receipt_flow(client: TestClient) -> None:
     )
     assert impact.status_code == 200
     assert impact.json()["confirmedQuantity"] == 6
+    assert impact.json()["donorReportedConfirmedWeightKg"] == 9.375
+
+    recipient_impact = client.get(
+        "/api/v1/impact/summary",
+        headers=demo_headers("demo-hope"),
+    )
+    assert recipient_impact.status_code == 200
+    assert recipient_impact.json()["donorReportedConfirmedWeightKg"] == 9.375
+
+    donor_network = client.get(
+        "/api/v1/network/insights",
+        headers=demo_headers("demo-donor"),
+    )
+    assert donor_network.status_code == 200
+    assert donor_network.json()["partnerships"][0]["organizationName"] == "Hope Shelter"
+    assert donor_network.json()["partnerships"][0]["confirmedMeals"] == 6
+
+    recipient_network = client.get(
+        "/api/v1/network/insights",
+        headers=demo_headers("demo-hope"),
+    )
+    assert recipient_network.status_code == 200
+    assert recipient_network.json()["partnerships"][0]["organizationName"] == "Green Leaf Kitchen"
 
     updated = client.get(
         f"/api/v1/donations/{donation_id}",
