@@ -99,6 +99,7 @@ class PlanService:
                     "status": plan.status.value,
                     "allocatedQuantity": plan.allocated_quantity,
                     "unallocatedQuantity": plan.unallocated_quantity,
+                    "notReadyCandidates": plan.not_ready_candidates,
                 },
             ),
         )

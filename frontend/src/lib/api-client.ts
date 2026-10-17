@@ -687,6 +687,27 @@ function eventDetail(
     case "DONATION_CREATED":
       return "Donor-entered food and cutoff details saved."
     case "RESCUE_PLAN_CREATED":
+      if (payload.status === "NONE" || payload.status === "UNKNOWN") {
+        const candidates = Array.isArray(payload.notReadyCandidates)
+          ? payload.notReadyCandidates
+          : []
+        const reasons = candidates
+          .flatMap((candidate) =>
+            candidate &&
+            typeof candidate === "object" &&
+            "reasonCodes" in candidate &&
+            Array.isArray(candidate.reasonCodes)
+              ? candidate.reasonCodes
+              : [],
+          )
+          .filter((reason): reason is string => typeof reason === "string")
+        return reasons.length > 0
+          ? `No verified match yet: ${reasons
+              .join(", ")
+              .replaceAll("_", " ")
+              .toLowerCase()}.`
+          : "No verified recipient match yet; matching remains pending."
+      }
       return "Backend readiness and route checks completed."
     case "DYNAMIC_REMATCH_TRIGGERED":
       return "Recipient availability changed; the rescue plan was recalculated."

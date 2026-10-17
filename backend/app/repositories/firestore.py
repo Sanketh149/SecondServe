@@ -53,12 +53,46 @@ class FirestoreRepository:
     @staticmethod
     def _document_data(model: Any) -> dict[str, Any]:
         data = model.model_dump(mode="json", by_alias=True)
+        if isinstance(model, Recipient):
+            data["hours"] = FirestoreRepository._hours_for_firestore(
+                model.hours
+            )
         for field in ("handoffCodeHash", "handoff_code_hash"):
             value = getattr(model, "handoff_code_hash", None)
             if value:
                 data["handoffCodeHash"] = value
                 break
         return data
+
+    @staticmethod
+    def _hours_for_firestore(
+        hours: dict[str, list[tuple[str, str]]],
+    ) -> dict[str, list[dict[str, str]]]:
+        return {
+            day: [
+                {"opening": opening, "closing": closing}
+                for opening, closing in ranges
+            ]
+            for day, ranges in hours.items()
+        }
+
+    @staticmethod
+    def _normalize_recipient_data(data: dict[str, Any]) -> dict[str, Any]:
+        normalized = dict(data)
+        raw_hours = normalized.get("hours")
+        if isinstance(raw_hours, dict):
+            normalized["hours"] = {
+                day: [
+                    (
+                        (period.get("opening", ""), period.get("closing", ""))
+                        if isinstance(period, dict)
+                        else tuple(period)
+                    )
+                    for period in periods
+                ]
+                for day, periods in raw_hours.items()
+            }
+        return normalized
 
     @classmethod
     def _firestore_value(cls, value: Any) -> Any:
@@ -77,7 +111,10 @@ class FirestoreRepository:
         snapshot = self.client.collection(collection).document(identifier).get()
         if not snapshot.exists:
             return None
-        return model_type.model_validate(snapshot.to_dict())
+        data = snapshot.to_dict()
+        if name == "recipients":
+            data = self._normalize_recipient_data(data)
+        return model_type.model_validate(data)
 
     def _create(self, name: str, model: ModelT) -> ModelT:
         collection, _, id_field = COLLECTIONS[name]
@@ -103,7 +140,10 @@ class FirestoreRepository:
                 part.capitalize() if index else part
                 for index, part in enumerate(key.split("_"))
             )
-            data[alias] = self._firestore_value(value)
+            if name == "recipients" and alias == "hours":
+                data[alias] = self._hours_for_firestore(value)
+            else:
+                data[alias] = self._firestore_value(value)
         from app.models.common import utc_now
 
         data["updatedAt"] = utc_now().isoformat()
@@ -120,10 +160,13 @@ class FirestoreRepository:
         query = self.client.collection(collection)
         if field is not None:
             query = query.where(filter=FieldFilter(field, "==", value))
-        return [
-            model_type.model_validate(snapshot.to_dict())
-            for snapshot in query.stream()
-        ]
+        values = []
+        for snapshot in query.stream():
+            data = snapshot.to_dict()
+            if name == "recipients":
+                data = self._normalize_recipient_data(data)
+            values.append(model_type.model_validate(data))
+        return values
 
     def get_user(self, uid: str) -> UserProfile | None:
         return self._get("users", uid)
