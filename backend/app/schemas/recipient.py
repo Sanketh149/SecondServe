@@ -6,6 +6,10 @@ from pydantic.alias_generators import to_camel
 
 from app.models.recipient import Recipient
 
+TIMEZONE_ALIASES = {
+    "Asia/Calcutta": "Asia/Kolkata",
+}
+
 
 class UpdateRecipientProfileRequest(BaseModel):
     model_config = ConfigDict(
@@ -24,6 +28,7 @@ class UpdateRecipientProfileRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_profile(self) -> "UpdateRecipientProfileRequest":
+        self.timezone = TIMEZONE_ALIASES.get(self.timezone, self.timezone)
         if self.unmet_demand > self.capacity:
             raise ValueError("Unmet demand cannot exceed meal capacity.")
         try:

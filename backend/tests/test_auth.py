@@ -77,6 +77,27 @@ def test_recipient_profile_update_rejects_unmet_demand_over_capacity(
     assert response.status_code == 422
 
 
+def test_recipient_profile_normalizes_legacy_timezone_alias(
+    client: TestClient,
+) -> None:
+    response = client.put(
+        "/api/v1/recipients/me/profile",
+        headers=demo_headers("demo-hope"),
+        json={
+            "timezone": "Asia/Calcutta",
+            "hours": {"monday": [["00:00", "00:00"]]},
+            "capacity": 24,
+            "unmetDemand": 10,
+            "acceptedCategories": ["prepared_meal"],
+            "dietaryTags": [],
+            "allergenRestrictions": [],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["timezone"] == "Asia/Kolkata"
+
+
 def test_recipient_profile_update_accepts_all_day_hours(client: TestClient) -> None:
     response = client.put(
         "/api/v1/recipients/me/profile",
