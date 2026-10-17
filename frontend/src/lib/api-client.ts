@@ -314,8 +314,36 @@ async function request<T>(
       typeof body === "object" && body !== null && "detail" in body
         ? (body as { detail?: unknown }).detail
         : undefined
+    const validationDetails =
+      typeof body === "object" &&
+      body !== null &&
+      "error" in body &&
+      typeof (body as { error?: unknown }).error === "object" &&
+      (body as { error?: unknown }).error !== null
+        ? (body as {
+            error?: {
+              details?: {
+                errors?: Array<{
+                  loc?: Array<string | number>
+                  msg?: string
+                }>
+              }
+            }
+          }).error?.details?.errors
+        : undefined
+    const validationMessage =
+      validationDetails
+        ?.map((item) => {
+          const location = item.loc?.slice(1).join(".")
+          return location && item.msg
+            ? `${location}: ${item.msg}`
+            : item.msg
+        })
+        .filter(Boolean)
+        .join(" · ") || undefined
     throw new ApiError(
       error?.message ??
+        validationMessage ??
         (typeof detail === "string" ? detail : `API request failed (${response.status}).`),
       response.status,
       error?.code,
