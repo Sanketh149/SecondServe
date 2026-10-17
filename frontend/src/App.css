@@ -3240,6 +3240,12 @@
   margin-top: 18px;
 }
 
+.recipient-demand-forecast > .panel-empty-note {
+  margin: 0;
+  padding: 0 18px 18px;
+  line-height: 1.5;
+}
+
 .recipient-demand-days {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
