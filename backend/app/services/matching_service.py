@@ -190,7 +190,11 @@ class MatchingService:
         reasons: list[str] = []
         if not recipient.active:
             reasons.append("RECIPIENT_INACTIVE")
-        if donation.category not in recipient.accepted_categories:
+        accepts_all_categories = any(
+            category.casefold() in {"any", "any_food", "*"}
+            for category in recipient.accepted_categories
+        )
+        if not accepts_all_categories and donation.category not in recipient.accepted_categories:
             reasons.append("CATEGORY_NOT_ACCEPTED")
         if recipient.unmet_demand <= 0 or recipient.capacity <= 0:
             reasons.append("NO_AVAILABLE_CAPACITY")

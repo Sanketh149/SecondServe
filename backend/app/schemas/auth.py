@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.alias_generators import to_camel
 
 from app.models.organization import Location
@@ -44,6 +44,13 @@ class CreateProfileRequest(BaseModel):
     close_time: str = "17:00"
     open_saturday: bool = False
     open_sunday: bool = False
+
+    @field_validator("timezone", mode="before")
+    @classmethod
+    def normalize_timezone_alias(cls, value: str) -> str:
+        return {
+            "Asia/Calcutta": "Asia/Kolkata",
+        }.get(value, value)
 
     @model_validator(mode="after")
     def validate_recipient_fields(self) -> "CreateProfileRequest":

@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.services.route_service import RouteService
 from app.services.assistant_service import AssistantService
+from app.schemas.auth import CreateProfileRequest
 from tests.conftest import demo_headers, demo_rescue_window
 
 
@@ -14,6 +15,20 @@ def test_health_and_demo_profile(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json()["role"] == "donor"
     assert client.get("/api/v1/me", headers=demo_headers("demo-donor")).json()["uid"] == "demo-donor"
+
+
+def test_donor_onboarding_normalizes_legacy_timezone_alias(client: TestClient) -> None:
+    request = CreateProfileRequest(
+        role="donor",
+        display_name="New Donor",
+        organization_name="New Donor Kitchen",
+        address="123 Market Street",
+        latitude=17.43,
+        longitude=78.53,
+        timezone="Asia/Calcutta",
+    )
+
+    assert request.timezone == "Asia/Kolkata"
 
 
 def test_recipient_profile_is_scoped_to_current_organization(client: TestClient) -> None:

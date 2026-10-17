@@ -58,6 +58,7 @@ function categoryLabel(category: string): string {
     bakery: "Bakery",
     produce: "Produce",
     packaged_food: "Packaged food",
+    any_food: "Any food category",
   }
   return labels[category] ?? category
 }
@@ -522,7 +523,14 @@ export function RecipientCapacityPage() {
       if (!current) return current
       const acceptedCategories = current.acceptedCategories.includes(category)
         ? current.acceptedCategories.filter((item) => item !== category)
-        : [...current.acceptedCategories, category]
+        : category === "any_food"
+          ? ["any_food"]
+          : [
+              ...current.acceptedCategories.filter(
+                (item) => item !== "any_food",
+              ),
+              category,
+            ]
       return { ...current, acceptedCategories }
     })
   }
@@ -691,6 +699,7 @@ export function RecipientCapacityPage() {
                     ["bakery", "Bakery"],
                     ["produce", "Produce"],
                     ["packaged_food", "Packaged food"],
+                    ["any_food", "Any food category"],
                   ].map(([value, label]) => (
                     <button
                       aria-pressed={draft.acceptedCategories.includes(value)}

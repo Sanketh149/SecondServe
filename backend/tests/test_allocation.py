@@ -107,3 +107,60 @@ def test_matching_uses_confirmed_completion_history_as_tie_breaker(
     assert first["recipientId"] == "rcp-community"
     assert first["recipientCompletionRate"] == 1.0
     assert first["completionHistorySampleSize"] == 3
+
+
+def test_any_food_category_accepts_other_donations(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    def estimate(self, _donor_id, _recipient_id, departure_at=None):
+        return {
+            "arrival_at": departure_at + timedelta(minutes=10),
+            "distance_meters": 1000,
+            "duration_seconds": 600,
+            "provider": "TEST_ROUTE",
+        }
+
+    def build_route(self, _donor_id, recipient_ids, _departure_at=None):
+        return {
+            "ordered_recipient_ids": recipient_ids,
+            "distance_meters": 1000,
+            "duration_seconds": 600,
+            "provider": "TEST_ROUTE",
+        }
+
+    monkeypatch.setattr(RouteService, "estimate", estimate)
+    monkeypatch.setattr(RouteService, "build_route", build_route)
+    repository = get_repository()
+    recipient = repository.get_recipient("rcp-community")
+    assert recipient is not None
+    repository.update_recipient(
+        recipient.recipient_id,
+        accepted_categories=["any_food"],
+    )
+    now, pickup, cutoff = demo_rescue_window()
+    created = client.post(
+        "/api/v1/donations",
+        headers=demo_headers("demo-donor"),
+        json={
+            "itemName": "Mixed refrigerated food",
+            "category": "other",
+            "quantity": 4,
+            "unit": "meals",
+            "dietaryTags": [],
+            "declaredAllergens": [],
+            "allergenStatus": "NOT_APPLICABLE",
+            "donorConfirmed": True,
+            "preparedAt": now.isoformat(),
+            "storageCondition": "refrigerated",
+            "pickupAvailableAt": pickup.isoformat(),
+            "usableUntil": cutoff.isoformat(),
+        },
+    )
+    plan = client.post(
+        f"/api/v1/donations/{created.json()['donationId']}/rescue-plan",
+        headers=demo_headers("demo-donor"),
+    )
+
+    assert plan.status_code == 200, plan.text
+    assert plan.json()["allocations"][0]["recipientId"] == "rcp-community"

@@ -323,9 +323,13 @@ export function OrganizationOnboardingPage() {
 
   function toggleCategory(value: string) {
     setCategories((current) =>
-      current.includes(value)
-        ? current.filter((category) => category !== value)
-        : [...current, value],
+      value === "any_food"
+        ? current.includes(value)
+          ? current.filter((category) => category !== value)
+          : ["any_food"]
+        : current.includes(value)
+          ? current.filter((category) => category !== value)
+          : [...current.filter((category) => category !== "any_food"), value],
     )
   }
 
@@ -479,6 +483,7 @@ export function OrganizationOnboardingPage() {
                     ["bakery", "Bakery"],
                     ["produce", "Produce"],
                     ["packaged_food", "Packaged food"],
+                    ["any_food", "Any food category"],
                   ].map(([value, label]) => (
                     <button
                       aria-pressed={categories.includes(value)}
