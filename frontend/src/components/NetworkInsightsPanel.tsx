@@ -127,8 +127,8 @@ export function NetworkInsightsPanel() {
             <div className="network-heatmap-empty">
               <ChartColumn aria-hidden="true" size={18} />
               <span>
-                Heatmap will appear when active donations or recipient needs
-                are recorded.
+                No active surplus or unmet need is currently recorded. Completed
+                rescues appear in the partnership history.
               </span>
             </div>
           )}
