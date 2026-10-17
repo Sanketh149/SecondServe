@@ -60,6 +60,18 @@ class FirestoreRepository:
                 break
         return data
 
+    @classmethod
+    def _firestore_value(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            return {key: cls._firestore_value(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [cls._firestore_value(item) for item in value]
+        if hasattr(value, "model_dump"):
+            return cls._firestore_value(value.model_dump(mode="json", by_alias=True))
+        if hasattr(value, "value"):
+            return cls._firestore_value(value.value)
+        return value
+
     def _get(self, name: str, identifier: str):
         collection, model_type, _ = COLLECTIONS[name]
         snapshot = self.client.collection(collection).document(identifier).get()
@@ -91,7 +103,7 @@ class FirestoreRepository:
                 part.capitalize() if index else part
                 for index, part in enumerate(key.split("_"))
             )
-            data[alias] = value.value if hasattr(value, "value") else value
+            data[alias] = self._firestore_value(value)
         from app.models.common import utc_now
 
         data["updatedAt"] = utc_now().isoformat()
