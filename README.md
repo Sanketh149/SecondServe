@@ -5,11 +5,32 @@ rescue. Donors review and confirm food details, recipients are matched against
 need and capacity, unanswered offers can be relayed, and only recipient-confirmed
 handoffs count as rescued.
 
-> **Local integration status:** The React app uses Firebase Authentication and
-> the FastAPI API; the API uses Firestore, Cloud Storage, Vertex AI Gemini, and
-> Google Routes when configured. Cloud Run and Firebase Hosting have **not**
-> been deployed. The current local backend configuration targets the
-> `secondserve-511317` GCP project; cloud API usage may incur charges.
+> **Integration status:** The React app uses Firebase Authentication and the
+> FastAPI API; the deployed API uses Firestore, Cloud Storage, Vertex AI Gemini,
+> Google Routes, and Cloud Tasks when configured. Cloud Run is deployed for the
+> frontend and backend; Firebase Hosting is not used for the current deployment.
+> The project is `secondserve-511317`; cloud API usage may incur charges.
+
+## Deployment
+
+The current prototype is deployed as two Cloud Run services in the
+`secondserve-511317` GCP project, region `us-central1`:
+
+- Frontend: `https://secondserve-frontend-6x3xgvzyca-uc.a.run.app`
+- Backend API: `https://secondserve-backend-6x3xgvzyca-uc.a.run.app`
+
+The frontend is a Vite production build served by Nginx. Its Firebase web
+configuration and backend URL are baked into the static bundle at build time;
+Firebase web configuration is public client configuration, not a server secret.
+The backend receives runtime configuration through Cloud Run environment
+variables. Sensitive values (`HANDOFF_ENCRYPTION_KEY` and
+`GOOGLE_MAPS_API_KEY`) are mounted from Secret Manager, not copied into the
+repository or container image. Firestore, Cloud Storage, Vertex AI, Google
+Routes, and the Cloud Tasks offer-expiry queue use the configured runtime
+service account.
+
+Cloud Tasks expiry is configured as a deployment-dependent callback; local
+development still reports that automatic expiry is unavailable.
 
 ## Product scope
 
