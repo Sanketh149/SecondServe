@@ -71,7 +71,10 @@ def update_my_recipient_profile(
     updated = repository.update_recipient(
         recipient.recipient_id,
         timezone=request.timezone,
-        hours=request.hours,
+        hours={
+            day: [[opening, closing] for opening, closing in ranges]
+            for day, ranges in request.hours.items()
+        },
         capacity=request.capacity,
         unmet_demand=request.unmet_demand,
         accepted_categories=request.accepted_categories,
